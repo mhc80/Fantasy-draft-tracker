@@ -266,4 +266,117 @@ function App(){
           e('div',{className:'small muted mt-1'}, state.playersSTD.length?('Loaded '+state.playersSTD.length+' players'):'No file loaded yet')
         ),
         e('div',{className:'mb-3'},
-          e('label',{
+          e('label',{className:'form-label'},'Team Drawn From Hat'),
+          e('select',{className:'form-select',value:state.selectedTeam,onChange:ev=>setState(s=>({...s,selectedTeam:ev.target.value}))}, [e('option',{key:'',value:''},'All Teams')].concat(TEAMS.map(t=>e('option',{key:t.abbr,value:t.abbr},`${t.abbr} — ${t.name}`)))),
+          state.selectedTeam ? e('div',{className:'mt-2 team-pill'}, e(TeamLogo,{abbr:state.selectedTeam}), e('span',null,state.selectedTeam)) : e('div',{className:'mt-2 muted'},'No team selected')
+        ),
+        e('div',{className:'mb-3'},
+          e('label',{className:'form-label'},'Position'),
+          e('ul',{className:'nav nav-pills flex-wrap gap-1'},
+            ['ALL','QB','RB','WR','TE','K','DEF'].map(pos =>
+              e('li',{className:'nav-item',key:pos},
+                e('button',{className:'nav-link '+(state.pos===pos?'active':''),onClick:()=>setState(s=>({...s,pos}))},pos)
+              )
+            )
+          )
+        ),
+        e('div',{className:'mt-3'},
+          e('h6',null,'Other Managers (budgets)'),
+          state.teams.slice(1).map(t =>
+            e('div',{key:t.id,className:'d-flex align-items-center justify-content-between mb-2'},
+              e('input',{className:'form-control form-control-sm',style:{width:'55%'},value:t.name,onChange:e2=>setState(s=>{const teams=s.teams.map(tt=>tt.id===t.id?{...tt,name:e2.target.value}:tt); return {...s,teams};})}),
+              e('input',{type:'number',min:0,step:1,className:'form-control form-control-sm',style:{width:'30%'},value:t.spent,onChange:e2=>setTeamBudget(t.id,e2.target.value)}),
+              e('span',{className:'money small'},'$'+(200-(t.spent||0)))
+            )
+          )
+        )
+      )
+    ),
+    e('div',{className:'col-12 col-lg-5'},
+      e('div',{className:'card p-3'},
+        e('div',{className:'d-flex justify-content-between align-items-center mb-2'},
+          e('h5',{className:'m-0'}, state.selectedTeam ? ('Roster — '+(teamByAbbr(state.selectedTeam)?.name || state.selectedTeam)) : 'All Available Players'),
+          e('span',{className:'small muted'}, teamRoster.length+' players')
+        ),
+        e('div',{className:'table-responsive',style:{maxHeight:'60vh',overflow:'auto'}},
+          e('table',{className:'table table-sm align-middle'},
+            e('thead',null, e('tr',null, e('th',null,'#'), e('th',null,'Player / Team / Pos'), e('th',null,'Actions'))),
+            e('tbody',null, teamRoster.map(p=> e(PlayerRow,{key:p.id+'-'+p.name,p})))
+          )
+        )
+      )
+    ),
+    e('div',{className:'col-12 col-lg-3'},
+      e('div',{className:'card p-3 sticky-topish'},
+        e('h5',null,'My Roster'),
+        (state.drafted.filter(p=>p.draftedBy===0).length===0) ? e('div',{className:'muted'},'No players yet') :
+          e('ul',{className:'list-group mb-3'},
+            state.drafted.filter(p=>p.draftedBy===0).map(p =>
+              e('li',{key:p.id+'-'+p.name,className:'list-group-item d-flex justify-content-between align-items-center'},
+                e('span',null,p.name,' ',e('span',{className:'badge rounded-pill pos-badge ms-2'},p.pos)),
+                e('span',null,
+                  e('span',{className:'money me-2'},'$'+Number(p.cost||0).toFixed(0)),
+                  e('span',{className:'linkish',onClick:()=>undoDraft(p)},'Undo')
+                )
+              )
+            )
+          ),
+        e('div',{className:'mt-2'},
+          e('div',null,e('strong',null,state.teams[0].name)),
+          e('div',null,'Spent: ',e('span',{className:'money'},'$'+Number(state.teams[0].spent||0).toFixed(0))),
+          e('div',null,'Left: ',e('span',{className:'money'},'$'+Number(200-(state.teams[0].spent||0)).toFixed(0)))
+        )
+      )
+    ),
+    // Modal
+    (function(){
+      if(!detail) return null;
+      const p=detail;
+      const k=`${p.name}::${p.teamAbbr}`;
+      const note=state.notes[k]||'';
+      const slug=p.name.toLowerCase().replace(/\./g,'').replace(/'/g,'').replace(/[^a-z0-9 ]/g,'').trim().replace(/\s+/g,'-');
+      const direct=`https://www.fantasypros.com/nfl/players/${slug}.php`;
+      const search=`https://www.google.com/search?q=site%3Afantasypros.com+nfl+${encodeURIComponent(p.name)}`;
+      return e('div',{className:'modal show d-block',tabIndex:'-1',role:'dialog','aria-modal':'true'},
+        e('div',{className:'modal-dialog modal-dialog-scrollable'},
+          e('div',{className:'modal-content'},
+            e('div',{className:'modal-header'},
+              e('h5',{className:'modal-title'}, p.name),
+              e('button',{type:'button',className:'btn-close',onClick:()=>setDetail(null),'aria-label':'Close'})
+            ),
+            e('div',{className:'modal-body'},
+              e('div',{className:'d-flex align-items-center mb-3'},
+                e(TeamLogo,{abbr:p.teamAbbr}),
+                e('div',null,
+                  e('div',null, p.teamAbbr,' • ',p.pos),
+                  e('div',{className:'small muted'}, 'Rank: ',p.rank, p.bye?` • Bye ${p.bye}`:'', p.ecr?` • ECR ${p.ecr}`:'', p.adp?` • ADP ${p.adp}`:'')
+                )
+              ),
+              e('div',{className:'mb-2'}, e('strong',null,'Experts Outlook (paste from FantasyPros):')),
+              e('textarea',{className:'form-control',rows:5,placeholder:'Paste the outlook blurb here...',value:note,onChange:e2=>setNoteFor(p,e2.target.value)}),
+              e('div',{className:'small muted mt-1'}, 'Tip: Open the FantasyPros player page, copy the short outlook/notes, and paste it here. Saved locally.')
+            ),
+            e('div',{className:'modal-footer d-flex justify-content-between align-items-center'},
+              e('div',{className:'d-flex gap-2'},
+                e('a',{className:'btn btn-outline-light btn-sm',href:direct,target:'_blank',rel:'noopener'},'Open on FantasyPros'),
+                e('a',{className:'btn btn-outline-light btn-sm',href:search,target:'_blank',rel:'noopener'},'Search on FantasyPros')
+              ),
+              e('div',{className:'d-flex align-items-center gap-2'},
+                e('select',{className:'form-select form-select-sm',style:{width:'140px'},value:0,onChange:()=>{}},
+                  state.teams.map(t=> e('option',{key:t.id,value:t.id},t.name))
+                ),
+                e('input',{type:'number',min:0,step:1,value:1,onChange:()=>{},className:'form-control form-control-sm',style:{width:'80px'},id:'__bid'}),
+                e('button',{className:'btn btn-primary',onClick:()=>{ const bid=parseInt(document.getElementById('__bid').value||'1',10); draftPlayer(p,0,bid); }},'Draft')
+              )
+            )
+          )
+        )
+      );
+    })()
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(e(App));
+</script>
+</body>
+</html>
