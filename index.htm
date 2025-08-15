@@ -2,9 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Fantasy Auction Draft Tracker — Dark Roster, Managers Page, Draft Log</title>
+  <title>Fantasy Auction Draft Tracker — v5.1 (Managers/Settings Fix)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- Bootstrap + React -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -46,11 +45,7 @@
     .form-control,.form-select{ background:#0a1216; color:var(--text); border:1px solid #2c4a59; border-radius:10px }
     .form-control::placeholder{ color:#7fa0b1; opacity:1 }
 
-    /* FULLY DARK tables/lists (no white backgrounds) */
-    .table, .table thead, .table tbody, .table tr, .table th, .table td {
-      background-color: transparent !important;
-      color: var(--tableRow);
-    }
+    .table, .table thead, .table tbody, .table tr, .table th, .table td { background-color: transparent !important; color: var(--tableRow); }
     .table th{ color:var(--tableHead); border-color:#203743; font-weight:700; background:#0c1a20 !important }
     .table td{ border-color:#1a2e38 }
     .list-group-item{ background:var(--panel) !important; color:var(--text) !important; border-color:var(--line) !important }
@@ -66,21 +61,18 @@
     .muted{ color:var(--muted) }
     .row-strong{ color:var(--contrastMed); font-weight:600; letter-spacing:.2px }
 
-    /* Rank bands */
     .band{ font-weight:800; border-radius:999px; padding:.15rem .5rem; border:1px solid transparent }
     .band.high{ color:#052916; background:rgba(68,226,138,.85); border-color:#38c172 }
     .band.medium{ color:#2d2000; background:rgba(255,209,102,.9); border-color:#e0b548 }
     .band.low{ color:#061a39; background:rgba(134,182,255,.9); border-color:#5b8ed6 }
     .band.other{ color:#0c1921; background:rgba(154,170,188,.75); border-color:#8b9aaa }
 
-    /* Modal contrast */
     .modal-content{ background:var(--panel)!important; color:var(--text)!important; border:1px solid var(--line)!important }
     .modal-header .btn-close{ filter: invert(1) contrast(2) }
 
-    /* Orientation tweaks */
     @media (orientation: portrait){
       .stack-portrait{ display:flex; flex-direction:column; gap:1rem }
-      .sticky{ position:static } /* avoid sticky eating space on short height */
+      .sticky{ position:static }
     }
     @media (orientation: landscape) and (max-height: 520px){
       .table-responsive{ max-height:50vh !important }
@@ -110,8 +102,8 @@
 <script>
 const e = React.createElement;
 const {useState,useEffect,useMemo} = React;
-const STORAGE_KEY = 'auction_tracker_dual_league_dashboard_v5';
-const MIN_BID = 0.5; // $0.50 minimum
+const STORAGE_KEY = 'auction_tracker_dual_league_dashboard_v5_1';
+const MIN_BID = 0.5;
 
 /* Logos */
 const LOGO_CODE = { ARI:'ari', ATL:'atl', BAL:'bal', BUF:'buf', CAR:'car', CHI:'chi', CIN:'cin', CLE:'cle',
@@ -133,7 +125,6 @@ const TEAMS = [
   {abbr:'TEN',name:'Tennessee Titans'},{abbr:'WAS',name:'Washington Commanders'},
 ];
 
-/* Components */
 function TeamLogo({abbr}) {
   const code=LOGO_CODE[abbr]||abbr.toLowerCase();
   const url=`https://a.espncdn.com/i/teamlogos/nfl/500/${code}.png`;
@@ -159,7 +150,7 @@ function initialState(){
     participantNames: names,
     leagues:{ PPR:{teams:initialLeagueTeams(names), drafted:[]}, STD:{teams:initialLeagueTeams(names.map((n,i)=>i===0?'My Team (Std)':n)), drafted:[]} },
     detail:null, editDraft:null,
-    draftedView:'last10' // 'last10' | 'all'
+    draftedView:'last10'
   };
 }
 
@@ -172,7 +163,7 @@ function parseFPRowFlexible(r, idx){
   const pos  = normalizePos(obj['POS'] || obj['Pos'] || obj['Position'] || '');
   const rk   = Number(obj['RK'] || obj['Rk'] || obj['Rank'] || obj['Overall'] || idx+1);
   const bye  = (obj['BYE'] || obj['Bye'] || obj['Bye Week'] || '').toString().trim();
-  const sos  = (obj['SOS'] || '').toString().trim(); // e.g., "3 out of 5 stars"
+  const sos  = (obj['SOS'] || '').toString().trim();
   const ecrVsAdp = (obj['ECR VS ADP'] || obj['ECR vs ADP'] || '').toString().trim();
   const avgDiff  = (obj['AVG. DIFF'] || obj['AVG. DIFF '] || '').toString().trim();
   const pctOver  = (obj['% OVER'] || obj['% OVER '] || '').toString().trim();
@@ -192,11 +183,10 @@ function countsByPosForTeam(drafted, teamId){
   const c={QB:0,RB:0,WR:0,TE:0,K:0,DEF:0}; for(const d of drafted) if(d.draftedBy===teamId){ if(c[d.pos]!=null) c[d.pos]+=1; } return c;
 }
 function countDraftedByTeam(drafted, teamId){ return drafted.reduce((n,p)=> n + (p.draftedBy===teamId ? 1:0), 0); }
-/* $0.50 min per remaining slot (except one) */
 function maxBidForTeam(team, drafted, teamId, rosterSize){
   const draftedCount = countDraftedByTeam(drafted, teamId);
   const remainingSlots = Math.max(rosterSize - draftedCount, 0);
-  const reserveForMin = Math.max(remainingSlots - 1, 0) * 0.5;
+  const reserveForMin = Math.max(remainingSlots - 1, 0) * MIN_BID;
   const available = (team?.budget ?? 0) - reserveForMin;
   return Number(Math.max(available, 0).toFixed(2));
 }
@@ -212,7 +202,6 @@ function rankBand(pr){
   if(pr<=30) return 'low';
   return 'other';
 }
-function posTierLabel(posRank){ if(!posRank) return ''; if(posRank<=10) return 'Top 10'; const base=Math.floor((posRank-1)/10)*10+1; return `${base}–${base+9}`; }
 function availabilityByPos(allPlayers, drafted, pos){
   const remaining = allPlayers.filter(p=>p.pos===pos && !p.draftedBy).sort((a,b)=>(a.rank||9999)-(b.rank||9999));
   const buckets = { 'Top 10':0, '11–20':0, '21–30':0, '31–40':0, '41+':0 };
@@ -230,14 +219,12 @@ function starsFromSOS(s){
 function App(){
   const [state,setState]=useStoredState(initialState());
 
-  // header tabs
   useEffect(()=>{ window.switchView = (v)=>{
     setState(s=>({...s, view: v}));
-    try {
-      document.getElementById('tab-draft').classList.toggle('active', v==='draft');
-      document.getElementById('tab-settings').classList.toggle('active', v==='settings');
-      document.getElementById('tab-managers').classList.toggle('active', v==='managers');
-    } catch(_) {}
+    const ids = ['tab-draft','tab-settings','tab-managers'];
+    ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.classList.remove('active'); });
+    const map = {draft:'tab-draft', settings:'tab-settings', managers:'tab-managers'};
+    const el = document.getElementById(map[v]); if(el) el.classList.add('active');
   }},[]);
 
   const league = state.leagues[state.scoring];
@@ -273,12 +260,6 @@ function App(){
     return {have,need:{QB:needQB,RB:needRB,WR:needWR,TE:needTE,K:needK,DEF:needDEF,BN:needBN}, totalSlotsLeft, avail};
   },[league.drafted,state.targets,state.rosterSize,currentPlayers]);
 
-  const hatStats = useMemo(()=>{
-    const draftedTeams = new Set(league.drafted.map(p=>p.teamAbbr));
-    return {chosen:draftedTeams.size, remaining:32 - draftedTeams.size};
-  },[league.drafted]);
-
-  // IO
   function setParticipantName(idx, val){
     setState(s=>{
       const names = s.participantNames.map((n,i)=> i===idx ? val : n);
@@ -300,7 +281,6 @@ function App(){
     });
   }
 
-  // Draft actions
   function draftPlayer(p, teamId, cost){
     const amt = Number(cost);
     if(isNaN(amt) || amt < MIN_BID) return;
@@ -363,7 +343,6 @@ function App(){
     download(`draft_results_${state.scoring}.csv`, csv);
   }
 
-  /* Inline quick draft */
   function QuickDraftRow({player}){
     const [teamId,setTeamId]=useState(0);
     const [costStr,setCostStr]=useState('');
@@ -420,37 +399,32 @@ function App(){
     );
   }
 
-  /* VIEWS */
-
-  // --- Draft view (portrait-optimized ordering + My Roster above Draft Log) ---
   function DraftView(){
     const me = league.teams[0];
     const myMax = maxBidForTeam(me, league.drafted, 0, state.rosterSize);
 
-    // Drafted log (sorted newest first)
     const draftedSorted = [...league.drafted].sort((a,b)=> new Date(b.ts||0)-new Date(a.ts||0));
     const draftedShown = state.draftedView==='last10' ? draftedSorted.slice(0,10) : draftedSorted;
 
-    // My roster, grouped by position with bye & spent & band
-    const myByPos = myRoster.reduce((acc,p)=>{
-      (acc[p.pos] ||= []).push(p);
-      return acc;
-    },{});
+    const myByPos = myRoster.reduce((acc,p)=>{ (acc[p.pos] ||= []).push(p); return acc; },{});
     const posOrder = ['QB','RB','WR','TE','K','DEF','BN'];
 
     return e('div',{className:'row g-3 stack-portrait'},
-
-      // Top metrics + toggle + hat stats
       e('div',{className:'col-12'},
         e('div',{className:'d-flex flex-wrap gap-3'},
           e('div',{className:'metric flex-fill'},
             e('div',{className:'label'},'Active League'),
             e('div',{className:'value'}, state.scoring==='PPR'?'PPR':'Standard'),
-            e('div',{className:'mt-2'}, e('div',{className:'d-inline-flex gap-2'},
-              e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'PPR'}))},'PPR'),
-              e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'STD'}))},'Standard')
-            )),
-            e('div',{className:'mt-2 muted small'}, 'Teams chosen: ', (new Set(league.drafted.map(p=>p.teamAbbr))).size, ' • Teams remaining in hat: ', 32 - (new Set(league.drafted.map(p=>p.teamAbbr))).size)
+            e('div',{className:'mt-2'},
+              e('div',{className:'d-inline-flex gap-2'},
+                e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'PPR'}))},'PPR'),
+                e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'STD'}))},'Standard')
+              )
+            ),
+            e('div',{className:'mt-2 muted small'},
+              'Teams chosen: ', (new Set(league.drafted.map(p=>p.teamAbbr))).size,
+              ' • Teams remaining in hat: ', 32 - (new Set(league.drafted.map(p=>p.teamAbbr))).size
+            )
           ),
           e('div',{className:'metric'}, e('div',{className:'label'},'My Budget Left'), e('div',{className:'value'},'$'+Number(200-(me.spent||0)).toFixed(2))),
           e('div',{className:'metric'}, e('div',{className:'label'},'My Max Bid'), e('div',{className:'value'},'$'+myMax.toFixed(2))),
@@ -458,7 +432,6 @@ function App(){
         )
       ),
 
-      <!-- Filters (left) -->
       e('div',{className:'col-12 col-lg-4 order-2 order-lg-1'},
         e('div',{className:'panel p-3 sticky'},
           e('div',{className:'panel-title mb-2'},'Filters'),
@@ -485,37 +458,41 @@ function App(){
         )
       ),
 
-      // My Roster (moved up)
       e('div',{className:'col-12 col-lg-4 order-1 order-lg-2'},
         e('div',{className:'panel p-3'},
           e('div',{className:'panel-title mb-2'},'My Roster ('+state.scoring+')'),
-          posOrder.map(pos => {
-            const list = (myByPos[pos]||[]).slice().sort((a,b)=> (a.name>b.name?1:-1));
-            if(!list.length && !['BN'].includes(pos)) return null;
-            return e('div',{key:pos,className:'mb-2'},
-              e('div',{className:'d-flex justify-content-between align-items-center mb-1'},
-                e('span',{className:'pill'},pos,' • ',list.length),
-                null
-              ),
-              list.length? e('ul',{className:'list-group'},
-                list.map(p=>{
-                  const pr = computePosRank(p, currentPlayers);
-                  const b = rankBand(pr);
-                  return e('li',{key:p.uid,className:'list-group-item d-flex justify-content-between align-items-center'},
-                    e('span',null,
-                      e('span',{className:`band ${b} me-2`}, b.charAt(0).toUpperCase()+b.slice(1)),
-                      p.name,' ',
-                      p.bye? e('span',{className:'ms-1 muted'},'• Bye ',p.bye): null
+          (function(){
+            const groups = [];
+            ['QB','RB','WR','TE','K','DEF'].forEach(pos=>{
+              const list=(myByPos[pos]||[]).slice().sort((a,b)=> (a.name>b.name?1:-1));
+              if(list.length){
+                groups.push(
+                  e('div',{key:pos,className:'mb-2'},
+                    e('div',{className:'d-flex justify-content-between align-items-center mb-1'},
+                      e('span',{className:'pill'},pos,' • ',list.length),
+                      null
                     ),
-                    e('span',{className:'money'}, '$'+Number(p.cost||0).toFixed(2))
-                  );
-                })
-              ) : e('div',{className:'muted small'},'—')
-            );
-          })
+                    e('ul',{className:'list-group'},
+                      list.map(p=>{
+                        const pr = computePosRank(p, currentPlayers);
+                        const b = rankBand(pr);
+                        return e('li',{key:p.uid,className:'list-group-item d-flex justify-content-between align-items-center'},
+                          e('span',null,
+                            e('span',{className:`band ${b} me-2`}, b.charAt(0).toUpperCase()+b.slice(1)),
+                            p.name, p.bye? e('span',{className:'ms-1 muted'},'• Bye ',p.bye): null
+                          ),
+                          e('span',{className:'money'}, '$'+Number(p.cost||0).toFixed(2))
+                        );
+                      })
+                    )
+                  )
+                );
+              }
+            });
+            return groups.length? groups : e('div',{className:'muted small'},'No players yet');
+          })()
         ),
 
-        // Drafted Log directly under My Roster
         e('div',{className:'panel p-3 mt-3'},
           e('div',{className:'d-flex justify-content-between align-items-center mb-2'},
             e('div',{className:'panel-title m-0'},'Drafted (', state.draftedView==='last10'?'Last 10':'All',')'),
@@ -524,13 +501,14 @@ function App(){
               e('button',{className:'btn-chip '+(state.draftedView==='all'?'active':''),onClick:()=>setState(s=>({...s, draftedView:'all'}))},'All')
             )
           ),
-          draftedShown.length? e('ul',{className:'list-group'},
-            draftedShown.map(p => e(DraftListItem,{key:p.uid, entry:p}))
-          ) : e('div',{className:'muted'},'No picks yet')
+          (function(){
+            const draftedSorted = [...league.drafted].sort((a,b)=> new Date(b.ts||0)-new Date(a.ts||0));
+            const draftedShown = state.draftedView==='last10' ? draftedSorted.slice(0,10) : draftedSorted;
+            return draftedShown.length? e('ul',{className:'list-group'}, draftedShown.map(p => e(DraftListItem,{key:p.uid, entry:p}))) : e('div',{className:'muted'},'No picks yet');
+          })()
         )
       ),
 
-      // Players card (full height area)
       e('div',{className:'col-12 col-lg-8 order-3'},
         e('div',{className:'panel p-3'},
           e('div',{className:'d-flex justify-content-between align-items-center mb-2'},
@@ -548,7 +526,6 @@ function App(){
     );
   }
 
-  // --- Managers page (moved from Draft) ---
   function ManagersView(){
     return e('div',{className:'row g-3'},
       e('div',{className:'col-12'},
@@ -597,18 +574,20 @@ function App(){
     );
   }
 
-  // --- Settings (imports + roster config + participants) ---
   function SettingsView(){
     return e('div',{className:'row g-3'},
       e('div',{className:'col-12 col-xl-6'},
         e('div',{className:'panel p-3'},
           e('div',{className:'panel-title mb-2'},'Imports & Default League'),
           e('div',{className:'mb-2 muted'},'CSV imports are shared; budgets/drafted are per league.'),
-          e('div',{className:'mb-3'}, e('div',{className:'d-inline-flex gap-2'},
-            e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'PPR'}))},'Default to PPR'),
-            e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'STD'}))},'Default to Standard')
-          )),
-          e('div',{className:'mb-3'}, e('label',{className:'form-label'},'Import FantasyPros CSV — PPR'),
+          e('div',{className:'mb-3'},
+            e('div',{className:'d-inline-flex gap-2'},
+              e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'PPR'}))},'Default to PPR'),
+              e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'STD'}))},'Default to Standard')
+            )
+          ),
+          e('div',{className:'mb-3'},
+            e('label',{className:'form-label'},'Import FantasyPros CSV — PPR'),
             e('input',{type:'file',accept:'.csv',className:'form-control',onChange:ev=>{
               const f=ev.target.files[0]; if(!f)return;
               Papa.parse(f,{header:true,skipEmptyLines:true,transformHeader:h=>(h||'').trim(),complete:(res)=>{
@@ -617,7 +596,8 @@ function App(){
             }}),
             e('div',{className:'small muted'}, state.playersPPR.length?('Loaded '+state.playersPPR.length+' (PPR)'):'No PPR file loaded yet')
           ),
-          e('div',{className:'mb-3'}, e('label,{className:"form-label"}','Import FantasyPros CSV — Standard'),
+          e('div',{className:'mb-3'},
+            e('label',{className:'form-label'},'Import FantasyPros CSV — Standard'),
             e('input',{type:'file',accept:'.csv',className:'form-control',onChange:ev=>{
               const f=ev.target.files[0]; if(!f)return;
               Papa.parse(f,{header:true,skipEmptyLines:true,transformHeader:h=>(h||'').trim(),complete:(res)=>{
@@ -631,7 +611,8 @@ function App(){
       e('div',{className:'col-12 col-xl-6'},
         e('div',{className:'panel p-3'},
           e('div',{className:'panel-title mb-2'},'Roster & Positions'),
-          e('div',{className:'mb-3'}, e('label',{className:'form-label'},'Total Roster Size'),
+          e('div',{className:'mb-3'},
+            e('label',{className:'form-label'},'Total Roster Size'),
             e('input',{type:'number',min:1,step:1,value:state.rosterSize,onChange:e2=>setState(s=>({...s, rosterSize: Math.max(1, Number(e2.target.value||16))})),className:'form-control'})
           ),
           e('div',{className:'row g-2'},
@@ -669,10 +650,8 @@ function App(){
     );
   }
 
-  // Details modal
   function DetailsModal(){
-    const p = state.detail;
-    if(!p) return null;
+    const p = state.detail; if(!p) return null;
     const myMax = maxBidForTeam(league.teams[0], league.drafted, 0, state.rosterSize);
     const pr = computePosRank(p, currentPlayers);
     return e('div',{className:'modal show d-block',tabIndex:'-1',role:'dialog','aria-modal':'true'},
@@ -705,10 +684,8 @@ function App(){
     );
   }
 
-  // Edit modal
   function EditModal(){
-    const entry = state.editDraft;
-    if(!entry) return null;
+    const entry = state.editDraft; if(!entry) return null;
     let newTeam = entry.draftedBy;
     let newCostStr = String(entry.cost?.toFixed ? entry.cost.toFixed(2) : entry.cost ?? '');
     return e('div',{className:'modal show d-block',tabIndex:'-1',role:'dialog','aria-modal':'true'},
@@ -743,7 +720,6 @@ function App(){
     );
   }
 
-  // Render
   return e(React.Fragment,null,
     state.view==='settings' ? e(SettingsView)
     : state.view==='managers' ? e(ManagersView)
