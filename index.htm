@@ -1,0 +1,792 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fantasy Auction Draft Tracker — v5.6 (Collapsible My Roster)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+:root{
+  --bg:#05090b; --grad1:rgba(52,199,89,.16); --grad2:rgba(80,180,255,.12);
+  --panel:#0a1419; --panel-2:#0e1b22; --line:#1f3643;
+  --muted:#c7d6de; --text:#eef6fa; --brand:#2bb673;
+  --tableHead:#dff0f7; --tableRow:#cfe3ec;
+}
+body{
+  background:
+    radial-gradient(1200px 900px at 10% -10%, var(--grad1), transparent 40%),
+    radial-gradient(1100px 700px at 110% -10%, var(--grad2), transparent 40%),
+    var(--bg);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+.app-header{ backdrop-filter: blur(8px); background: linear-gradient(135deg, rgba(43,182,115,.22), rgba(24,54,64,.65)); border-bottom:1px solid var(--line) }
+.navtabs{ gap:.5rem; flex-wrap:wrap }
+.tablink{ border:1px solid var(--line); background:transparent; color:var(--text); border-radius:999px; padding:.35rem .9rem }
+.tablink.active{ background:rgba(124,240,161,.16); border-color:rgba(124,240,161,.45) }
+
+.panel{ background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03)); border:1px solid var(--line); border-radius:16px }
+.panel-title{ font-weight:700; letter-spacing:.2px }
+
+.metric{ background:var(--panel-2); border:1px solid var(--line); border-radius:12px; padding:.8rem 1rem }
+.metric .label{ color:var(--muted); font-size:.85rem } .metric .value{ font-weight:800; font-size:1.35rem }
+
+.btn-primary{ background:var(--brand); border-color:var(--brand) }
+.btn-outline-contrast{ background:#0f1f27; color:#e9fbff; border:1px solid #2c4a59; font-weight:700 }
+.btn-chip{ background:#10232c; border:1px solid #2c4a59; color:#e9fbff; border-radius:999px; padding:.25rem .7rem; font-weight:700 }
+
+.form-control,.form-select{ background:#0a1216; color:var(--text); border:1px solid #2c4a59; border-radius:10px }
+.form-control::placeholder{ color:#7fa0b1; opacity:1 }
+
+.table, .table thead, .table tbody, .table tr, .table th, .table td { background-color: transparent !important; color: var(--tableRow); }
+.table th{ color:var(--tableHead); border-color:#203743; font-weight:700; background:#0c1a20 !important }
+.table td{ border-color:#1a2e38 }
+.list-group-item{ background:#0a1419 !important; color:var(--text) !important; border-color:var(--line) !important }
+
+.sticky{ position:sticky; top:12px; z-index:10 }
+.logo{ width:22px; height:22px; object-fit:contain; margin-right:.5rem }
+.logo-lg{ width:26px; height:26px; object-fit:contain; margin-right:.5rem }
+.pos-badge{ background:#12343e; border:1px solid #2b6a67; border-radius:999px; font-weight:700 }
+.money{ font-variant-numeric:tabular-nums }
+.pill{ padding:.2rem .6rem; border:1px solid #2b6a67; border-radius:999px; background:#0c2225 }
+
+.band{ font-weight:800; border-radius:999px; padding:.15rem .5rem; border:1px solid transparent }
+.band.high{ color:#052916; background:rgba(68,226,138,.85); border-color:#38c172 }
+.band.medium{ color:#2d2000; background:rgba(255,209,102,.9); border-color:#e0b548 }
+.band.low{ color:#061a39; background:rgba(134,182,255,.9); border-color:#5b8ed6 }
+.band.other{ color:#0c1921; background:rgba(154,170,188,.75); border-color:#8b9aaa }
+
+.sos{ border:1px solid #385b6a; background:#0b1c23; border-radius:999px; padding:.1rem .5rem; font-size:.85rem }
+.sos.bad{ border-color:#6a3838; background:#23100f }
+.sos .stars{ letter-spacing:.5px; margin-right:.35rem }
+
+.manager-my{ outline: 2px solid rgba(43,182,115,.6); box-shadow: 0 0 0 6px rgba(43,182,115,.08) inset; background:linear-gradient(180deg, rgba(124,240,161,.09), rgba(255,255,255,0.02)); }
+.manager-my td{ color:#eefdf2 }
+
+.modal-content{ background:#0a1419!important; color:var(--text)!important; border:1px solid var(--line)!important }
+.modal-header .btn-close{ filter: invert(1) contrast(2) }
+
+@media (orientation: portrait){ .stack-portrait{ display:flex; flex-direction:column; gap:1rem } .sticky{ position:static } }
+@media (orientation: landscape) and (max-height: 520px){ .table-responsive{ max-height:50vh !important } }
+</style>
+</head>
+<body>
+<header class="app-header py-3 mb-3">
+  <div class="container d-flex justify-content-between align-items-center">
+    <div class="d-flex align-items-center gap-3">
+      <h1 class="h4 m-0">Fantasy Auction Draft Tracker</h1>
+      <nav class="d-none d-md-flex navtabs">
+        <button id="tab-draft" class="tablink active" onclick="window.switchView('draft')">Draft</button>
+        <button id="tab-managers" class="tablink" onclick="window.switchView('managers')">Managers</button>
+        <button id="tab-settings" class="tablink" onclick="window.switchView('settings')">Settings</button>
+      </nav>
+    </div>
+    <div class="small text-end">
+      <div>Draft Day: <strong>Aug 17</strong></div>
+      <div class="muted">Toggle PPR/Standard = switch league context</div>
+    </div>
+  </div>
+</header>
+
+<main class="container" id="root"></main>
+
+<script>
+const e=React.createElement; const {useState,useEffect,useMemo}=React;
+const STORAGE_KEY='auction_tracker_dual_league_dashboard_v5_6';
+const MIN_BID=0.5;
+
+/* Logos */
+const LOGO_CODE={ARI:'ari',ATL:'atl',BAL:'bal',BUF:'buf',CAR:'car',CHI:'chi',CIN:'cin',CLE:'cle',DAL:'dal',DEN:'den',DET:'det',GBP:'gb',HOU:'hou',IND:'ind',JAX:'jax',KC:'kc',LV:'lv',LAC:'lac',LAR:'lar',MIA:'mia',MIN:'min',NE:'ne',NO:'no',NYG:'nyg',NYJ:'nyj',PHI:'phi',PIT:'pit',SF:'sf',SEA:'sea',TB:'tb',TEN:'ten',WAS:'wsh'};
+const TEAMS=[{abbr:'ARI',name:'Arizona Cardinals'},{abbr:'ATL',name:'Atlanta Falcons'},{abbr:'BAL',name:'Baltimore Ravens'},{abbr:'BUF',name:'Buffalo Bills'},{abbr:'CAR',name:'Carolina Panthers'},{abbr:'CHI',name:'Chicago Bears'},{abbr:'CIN',name:'Cincinnati Bengals'},{abbr:'CLE',name:'Cleveland Browns'},{abbr:'DAL',name:'Dallas Cowboys'},{abbr:'DEN',name:'Denver Broncos'},{abbr:'DET',name:'Detroit Lions'},{abbr:'GBP',name:'Green Bay Packers'},{abbr:'HOU',name:'Houston Texans'},{abbr:'IND',name:'Indianapolis Colts'},{abbr:'JAX',name:'Jacksonville Jaguars'},{abbr:'KC',name:'Kansas City Chiefs'},{abbr:'LV',name:'Las Vegas Raiders'},{abbr:'LAC',name:'Los Angeles Chargers'},{abbr:'LAR',name:'Los Angeles Rams'},{abbr:'MIA',name:'Miami Dolphins'},{abbr:'MIN',name:'Minnesota Vikings'},{abbr:'NE',name:'New England Patriots'},{abbr:'NO',name:'New Orleans Saints'},{abbr:'NYG',name:'New York Giants'},{abbr:'NYJ',name:'New York Jets'},{abbr:'PHI',name:'Philadelphia Eagles'},{abbr:'PIT',name:'Pittsburgh Steelers'},{abbr:'SF',name:'San Francisco 49ers'},{abbr:'SEA',name:'Seattle Seahawks'},{abbr:'TB',name:'Tampa Bay Buccaneers'},{abbr:'TEN',name:'Tennessee Titans'},{abbr:'WAS',name:'Washington Commanders'}];
+
+function TeamLogo({abbr,big}){const code=LOGO_CODE[abbr]||abbr?.toLowerCase?.()||''; const url=`https://a.espncdn.com/i/teamlogos/nfl/500/${code}.png`; return e('img',{className:big?'logo-lg':'logo',alt:abbr+' logo',src:url,onError:(ev)=>{ev.currentTarget.style.display='none';}});}
+
+/* State helpers */
+function useStoredState(initial){const [state,setState]=useState(()=>{const raw=localStorage.getItem(STORAGE_KEY);if(!raw)return initial;try{return JSON.parse(raw)}catch(_){return initial}});useEffect(()=>localStorage.setItem(STORAGE_KEY,JSON.stringify(state)),[state]);return [state,setState];}
+function initialLeagueTeams(names){return Array.from({length:10},(_,i)=>({id:i,name:names?.[i]||(i===0?'My Team':('Team '+(i+1))),spent:0,budget:200}));}
+function initialState(){const names=Array.from({length:10},(_,i)=> i===0?'My Team':'Team '+(i+1));return{
+  view:'draft', scoring:'PPR',
+  playersPPR:[], playersSTD:[],
+  selectedTeam:'', pos:'ALL', q:'',
+  rosterSize:16,
+  targets:{QB:1,RB:2,WR:2,TE:1,FLEX:1,K:1,DEF:1,BN:8},
+  participantNames:names,
+  sosMap:{},
+  leagues:{PPR:{teams:initialLeagueTeams(names), drafted:[]},STD:{teams:initialLeagueTeams(names.map((n,i)=>i===0?'My Team (Std)':n)), drafted:[]}},
+  detail:null, editDraft:null,
+  draftedView:'last3',
+  myRosterCollapsed:false
+};}
+
+/* CSV parsing */
+function normalizePos(pos){if(!pos)return'N/A'; const p=String(pos).toUpperCase().trim(); return p.replace(/[0-9]+$/,'').replace('DST','DEF');}
+function parseFPRowFlexible(r,idx){const obj={};for(const k in r) obj[(k||'').trim()]=r[k]; const name=(obj['PLAYER NAME']||obj['Player']||obj['PLAYER']||'').toString().trim(); const team=(obj['TEAM']||obj['Team']||obj['NFL Team']||obj['Tm']||'').toString().trim().toUpperCase(); const pos=normalizePos(obj['POS']||obj['Pos']||obj['Position']||''); const rk=Number(obj['RK']||obj['Rk']||obj['Rank']||obj['Overall']||idx+1); const bye=(obj['BYE']||obj['Bye']||obj['Bye Week']||'').toString().trim(); const sos=(obj['SOS']||'').toString().trim(); const ecrVsAdp=(obj['ECR VS ADP']||obj['ECR vs ADP']||'').toString().trim(); const avgDiff=(obj['AVG. DIFF']||obj['AVG. DIFF ']||'').toString().trim(); const pctOver=(obj['% OVER']||obj['% OVER ']||'').toString().trim(); if(!name) return null; let abbr=team; if(abbr==='GB')abbr='GBP'; if(abbr==='JAC')abbr='JAX'; if(abbr==='LVR')abbr='LV'; if(abbr==='LA')abbr='LAR'; if(abbr==='WSH')abbr='WAS'; return {id:idx,name,teamAbbr:abbr,pos,rank:rk,bye,sos,ecrVsAdp,avgDiff,pctOver,draftedBy:null,cost:null};}
+
+/* SoS parsing */
+function parseStarsFromBlurb(txt){const m=String(txt||'').match(/(\d)\s*star/i); return m?parseInt(m[1],10):null;}
+function parseSOSCsv(rows){
+  const map={};
+  rows.forEach(r=>{
+    const teamRaw=(r['Team']||r['TEAM']||'').toString().trim().toUpperCase();
+    if(!teamRaw) return;
+    let team=teamRaw; if(team==='GB')team='GBP'; if(team==='JAC')team='JAX'; if(team==='LVR')team='LV'; if(team==='LA')team='LAR'; if(team==='WSH')team='WAS';
+    const entry={};
+    [['QB','QB'],['RB','RB'],['WR','WR'],['TE','TE'],['K','K'],['DST','DEF']].forEach(([col,pos])=>{
+      const blurb=r[col]||''; const stars=parseStarsFromBlurb(blurb);
+      entry[pos]={stars,blurb};
+    });
+    map[team]=entry;
+  });
+  return map;
+}
+
+/* Utils & tiers */
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8);}
+function download(filename,text){const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'})); a.download=filename; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500);}
+function countsByPosForTeam(drafted,teamId){const c={QB:0,RB:0,WR:0,TE:0,K:0,DEF:0}; for(const d of drafted) if(d.draftedBy===teamId){ if(c[d.pos]!=null) c[d.pos]+=1; } return c;}
+function countDraftedByTeam(drafted,teamId){return drafted.reduce((n,p)=> n + (p.draftedBy===teamId ? 1:0),0);}
+function maxBidForTeam(team,drafted,teamId,rosterSize){const draftedCount=countDraftedByTeam(drafted,teamId); const remainingSlots=Math.max(rosterSize-draftedCount,0); const reserveForMin=Math.max(remainingSlots-1,0)*MIN_BID; const available=(team?.budget??0)-reserveForMin; return Number(Math.max(available,0).toFixed(2));}
+function computePosRank(player,allPlayers){const samePos=allPlayers.filter(p=>p.pos===player.pos).sort((a,b)=>(a.rank||9999)-(b.rank||9999)); const idx=samePos.findIndex(p=>p.name===player.name && p.teamAbbr===player.teamAbbr); return idx<0?null:(idx+1);}
+function rankBand(pr){if(pr==null)return'other'; if(pr<=10)return'high'; if(pr<=20)return'medium'; if(pr<=30)return'low'; return'other';}
+function starsTxt(n){const x=Math.max(0,Math.min(5,n||0)); return '★'.repeat(x)+'☆'.repeat(5-x);}
+
+const TIERS=[{label:'Top 5',min:1,max:5},{label:'6–10',min:6,max:10},{label:'11–15',min:11,max:15},{label:'16–20',min:16,max:20},{label:'21–30',min:21,max:30},{label:'31–40',min:31,max:40},{label:'41+',min:41,max:Infinity}];
+const TIER_LABELS = TIERS.map(t=>t.label);
+function tierForRank(r){ if(r==null) return '41+'; for(const t of TIERS){ if(r>=t.min && r<=t.max) return t.label; } return '41+'; }
+
+/* FLEX */
+function computeFlexUsage(have,targets){const baseRB=targets.RB||0, baseWR=targets.WR||0, baseTE=targets.TE||0, flexReq=targets.FLEX||0; const surplusRB=Math.max((have.RB||0)-baseRB,0); const surplusWR=Math.max((have.WR||0)-baseWR,0); const surplusTE=Math.max((have.TE||0)-baseTE,0); const usable=surplusRB+surplusWR+surplusTE; const flexFilled=Math.min(usable,flexReq); const flexRemaining=Math.max(flexReq-flexFilled,0); return {flexFilled,flexRemaining};}
+
+/* App */
+function App(){
+  const [state,setState]=useStoredState(initialState());
+  useEffect(()=>{window.switchView=(v)=>{setState(s=>({...s,view:v})); ['tab-draft','tab-settings','tab-managers'].forEach(id=>{const el=document.getElementById(id); if(el) el.classList.remove('active');}); const map={draft:'tab-draft',settings:'tab-settings',managers:'tab-managers'}; const el=document.getElementById(map[v]); if(el) el.classList.add('active');}},[]);
+
+  const league=state.leagues[state.scoring];
+  const currentPlayers=state.scoring==='PPR'?state.playersPPR:state.playersSTD;
+
+  /* Lists */
+  const roster=useMemo(()=>{
+    const list=currentPlayers.filter(p=>!p.draftedBy && (!state.selectedTeam || p.teamAbbr===state.selectedTeam));
+    const byPos=list.filter(p=>state.pos==='ALL'||p.pos===state.pos);
+    const withPR=byPos.map(p=>({...p,_pr:computePosRank(p,currentPlayers)}));
+    const q=state.q.trim().toLowerCase();
+    const filtered=!q?withPR:withPR.filter(p=>p.name.toLowerCase().includes(q)||p.pos.toLowerCase().includes(q)||p.teamAbbr.toLowerCase().includes(q));
+    return filtered.sort((a,b)=>(a._pr||9999)-(b._pr||9999));
+  },[currentPlayers,state.selectedTeam,state.pos,state.q]);
+
+  const myRoster=useMemo(()=>league.drafted.filter(p=>p.draftedBy===0),[league.drafted]);
+
+  /* Needs + FLEX */
+  const needInfo=useMemo(()=>{
+    const have=countsByPosForTeam(league.drafted,0); const t=state.targets;
+    const needQB=Math.max((t.QB||0)-have.QB,0), needRB=Math.max((t.RB||0)-have.RB,0), needWR=Math.max((t.WR||0)-have.WR,0), needTE=Math.max((t.TE||0)-have.TE,0), needK=Math.max((t.K||0)-have.K,0), needDEF=Math.max((t.DEF||0)-have.DEF,0);
+    const {flexFilled,flexRemaining}=computeFlexUsage(have,t);
+    const draftedCount=countDraftedByTeam(league.drafted,0);
+    const baseNeeded=needQB+needRB+needWR+needTE+needK+needDEF+flexRemaining;
+    const totalSlotsLeft=Math.max(state.rosterSize-draftedCount,0);
+    const needBN=Math.max(totalSlotsLeft-baseNeeded,0);
+    return {have,need:{QB:needQB,RB:needRB,WR:needWR,TE:needTE,FLEX:flexRemaining,K:needK,DEF:needDEF,BN:needBN},flexFilled,flexReq:(t.FLEX||0),totalSlotsLeft};
+  },[league.drafted,state.targets,state.rosterSize]);
+
+  /* Imports */
+  function importCSV(which,file){
+    if(!file) return;
+    Papa.parse(file,{header:true,skipEmptyLines:true,transformHeader:h=>(h||'').trim(),complete:(res)=>{
+      const players=res.data.map(parseFPRowFlexible).filter(Boolean).sort((a,b)=>(a.rank||9999)-(b.rank||9999));
+      setState(s=>({...s,[which]:players}));
+    }});
+  }
+  function importSOS(file){
+    if(!file) return;
+    Papa.parse(file,{header:true,skipEmptyLines:true,transformHeader:h=>(h||'').trim(),complete:(res)=>{
+      const map=parseSOSCsv(res.data||[]);
+      setState(s=>({...s,sosMap:map}));
+    }});
+  }
+
+  /* Draft ops */
+  function draftPlayer(p,teamId,cost){
+    const amt=Number(cost); if(isNaN(amt)||amt<MIN_BID) return;
+    setState(s=>{
+      const lg=s.leagues[s.scoring];
+      const mapDraft=list=>list.map(x=>(x.id===p.id && x.name===p.name)?{...x,draftedBy:teamId,cost:amt}:x);
+      const playersPPR=(s.scoring==='PPR'?mapDraft(s.playersPPR):s.playersPPR);
+      const playersSTD=(s.scoring==='STD'?mapDraft(s.playersSTD):s.playersSTD);
+      const entry={uid:uid(),...p,draftedBy:teamId,cost:amt,scoring:s.scoring,ts:new Date().toISOString()};
+      const drafted=lg.drafted.concat([entry]);
+      const teams=lg.teams.map(t=>t.id===teamId?{...t,spent:Number((t.spent+amt).toFixed(2)),budget:Number((200-(t.spent+amt)).toFixed(2))}:t);
+      const leagues={...s.leagues,[s.scoring]:{...lg,drafted,teams}};
+      return {...s,playersPPR,playersSTD,leagues,detail:null};
+    });
+  }
+  function undoDraft(entry){
+    setState(s=>{
+      const lg=s.leagues[s.scoring]; const target=lg.drafted.find(d=>d.uid===entry.uid); if(!target) return s;
+      const drafted=lg.drafted.filter(d=>d.uid!==entry.uid);
+      const unmark=list=>list.map(x=>(x.id===target.id && x.name===target.name)?{...x,draftedBy:null,cost:null}:x);
+      const playersPPR=(s.scoring==='PPR'?unmark(s.playersPPR):s.playersPPR);
+      const playersSTD=(s.scoring==='STD'?unmark(s.playersSTD):s.playersSTD);
+      const teams=lg.teams.map(t=>t.id===target.draftedBy?{...t,spent:Number((t.spent-(target.cost||0)).toFixed(2)),budget:Number((200-(t.spent-(target.cost||0))).toFixed(2))}:t);
+      const leagues={...s.leagues,[s.scoring]:{...lg,drafted,teams}};
+      return {...s,playersPPR,playersSTD,leagues};
+    });
+  }
+  function applyEdit(uidToEdit,newTeamId,newCost){
+    const amt=Number(newCost); if(isNaN(amt)||amt<MIN_BID) return;
+    setState(s=>{
+      const lg=s.leagues[s.scoring]; const d=lg.drafted.find(x=>x.uid===uidToEdit); if(!d) return s;
+      const oldTeam=d.draftedBy, oldCost=d.cost;
+      const drafted=lg.drafted.map(x=>x.uid===uidToEdit?{...x,draftedBy:newTeamId,cost:amt}:x);
+      const teams=lg.teams.map(t=>{
+        if(t.id===oldTeam && oldTeam!==newTeamId){const spent=Number((t.spent-oldCost).toFixed(2)); return {...t,spent,budget:Number((200-spent).toFixed(2))};}
+        if(t.id===newTeamId){const delta=(newTeamId===oldTeam)?(amt-oldCost):amt; const spent=Number((t.spent+delta).toFixed(2)); return {...t,spent,budget:Number((200-spent).toFixed(2))};}
+        return t;
+      });
+      const leagues={...s.leagues,[s.scoring]:{...lg,drafted,teams}};
+      return {...s,leagues,editDraft:null};
+    });
+  }
+  function exportDraftCSV(){
+    const rows=[['League','Manager','Player','NFL Team','Pos','Cost','Timestamp']];
+    for(const p of league.drafted){const mgr=league.teams.find(t=>t.id===p.draftedBy)?.name||('Team '+(p.draftedBy+1)); rows.push([state.scoring,mgr,p.name,p.teamAbbr,p.pos,p.cost,p.ts||'']);}
+    const csv=rows.map(r=>r.map(x=>{const s=(x==null?'':String(x)); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;}).join(',')).join('\n');
+    download(`draft_results_${state.scoring}.csv`,csv);
+  }
+
+  /* Quick Draft row */
+  function QuickDraftRow({player}){const[teamId,setTeamId]=useState(0); const[costStr,setCostStr]=useState(''); const selTeam=league.teams.find(t=>t.id===teamId); const maxBid=maxBidForTeam(selTeam,league.drafted,teamId,state.rosterSize); const costVal=parseFloat(costStr); const valid=!isNaN(costVal)&&costVal>=MIN_BID&&costVal<=maxBid&&((costVal*2)%1===0);
+    return e('div',{className:'d-flex align-items-center gap-2 flex-wrap'},
+      e('select',{className:'form-select form-select-sm',style:{width:'160px'},value:teamId,onChange:e=>setTeamId(Number(e.target.value))},league.teams.map(t=>e('option',{key:t.id,value:t.id},t.name))),
+      e('input',{type:'number',inputMode:'decimal',step:0.5,min:MIN_BID,placeholder:'$',value:costStr,onChange:e=>setCostStr(e.target.value),className:'form-control form-control-sm',style:{width:'90px'}}),
+      e('button',{className:'btn btn-sm btn-primary',disabled:!valid,onClick:()=>{if(valid){draftPlayer(player,teamId,costVal); setCostStr('');}}}, valid? 'Draft' : `Max $${maxBid.toFixed(2)}`)
+    );
+  }
+
+  /* SoS helpers */
+  function sosFor(p){ return state.sosMap?.[p.teamAbbr]?.[p.pos]; }
+
+  /* Player row (with SoS) */
+  function PlayerRow({p}){
+    const pr=p._pr; const band=rankBand(pr); const sos=sosFor(p); const sosStars=sos?.stars ?? null;
+    return e('tr',null,
+      e('td',null, e('div',null, pr?'#'+pr:'—', ' ', e('span',{className:`band ${band} ms-2`}, band.charAt(0).toUpperCase()+band.slice(1)))),
+      e('td',null,
+        e('div',{className:'d-flex align-items-center gap-2'},
+          e(TeamLogo,{abbr:p.teamAbbr}),
+          e('div',null,
+            e('div',{style:{fontWeight:800}}, p.name,' ', e('span',{className:'badge rounded-pill pos-badge ms-2'},p.pos)),
+            e('div',{className:'small', style:{color:'#d4e7ef'}},
+              p.teamAbbr, p.bye?` • Bye ${p.bye}`:'',
+              sosStars!=null ? e('span',{className:'ms-2 sos', title:(sos?.blurb||'')}, e('span',{className:'stars'},starsTxt(sosStars)), 'SoS') : null
+            )
+          )
+        )
+      ),
+      e('td',null, e('div',{className:'d-flex gap-2 flex-wrap'},
+        e('button',{className:'btn btn-sm btn-outline-contrast',onClick:()=>setState(s=>({...s, detail:p}))},'Details'),
+        e(QuickDraftRow,{player:p})
+      ))
+    );
+  }
+
+  /* Analytics: market prices by position tier */
+  const market=useMemo(()=>{
+    const res={QB:{},RB:{},WR:{},TE:{},K:{},DEF:{}};
+    const drafted=league.drafted;
+    for(const d of drafted){
+      const pr=computePosRank(d,currentPlayers);
+      const tier=tierForRank(pr);
+      if(!res[d.pos][tier]) res[d.pos][tier]={sum:0,count:0};
+      res[d.pos][tier].sum += (d.cost||0);
+      res[d.pos][tier].count += 1;
+    }
+    const out={}; for(const pos of Object.keys(res)){ out[pos]={}; for(const lab of TIER_LABELS){ const cell=res[pos][lab]; out[pos][lab]= cell?('$'+(cell.sum/cell.count).toFixed(2)+' ('+cell.count+')'):'—'; } }
+    return out;
+  },[league.drafted,currentPlayers]);
+
+  /* Drafted row (with rank chip + safe undo) */
+  function DraftListItem({entry}){
+    const mgr=league.teams.find(t=>t.id===entry.draftedBy)?.name||('Team '+(entry.draftedBy+1));
+    const pr=computePosRank(entry,currentPlayers); const b=rankBand(pr); const rankText=pr?`#${pr}`:'—';
+    const undoText=`Undo pick?\n\n${entry.name} (${entry.pos}, ${entry.teamAbbr})\nPos Rank: ${rankText}\nCost: $${Number(entry.cost||0).toFixed(2)}\nManager: ${mgr}`;
+    return e('li',{className:'list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2'},
+      e('span',{className:'d-flex align-items-center'},
+        e(TeamLogo,{abbr:entry.teamAbbr,big:true}),
+        e('span',null,
+          e('span',{className:`band ${b} me-2`, title:`${entry.pos} position rank ${rankText}`},rankText),
+          e('strong',null,entry.name),
+          entry.bye? e('span',{className:'ms-1',style:{color:'#c7d6de'}},'• Bye ',entry.bye):null,
+          e('span',{className:'ms-2',style:{color:'#c7d6de',fontSize:'.9rem'}},'• ',mgr)
+        )
+      ),
+      e('span',null,
+        e('span',{className:'money me-3'},'$'+Number(entry.cost||0).toFixed(2)),
+        e('a',{className:'me-3',style:{cursor:'pointer',textDecoration:'underline dotted'},onClick:()=>setState(s=>({...s,editDraft:entry}))},'Edit'),
+        e('a',{style:{cursor:'pointer',textDecoration:'underline dotted'},onClick:()=>{ if(confirm(undoText)) undoDraft(entry);} },'Undo')
+      )
+    );
+  }
+
+  /* Collapsed summary for My Roster: counts by position & tier (H/M/L) */
+  function MyRosterCollapsedSummary({list}){
+    const positions=['QB','RB','WR','TE','K','DEF'];
+    const table = {};
+    positions.forEach(p=> table[p]={high:0,medium:0,low:0,other:0,total:0});
+    list.forEach(p=>{
+      if(!table[p.pos]) return;
+      const pr=computePosRank(p,currentPlayers);
+      const band=rankBand(pr); // high/medium/low/other
+      table[p.pos][band]=(table[p.pos][band]||0)+1;
+      table[p.pos].total++;
+    });
+    return e('div',null,
+      e('div',{className:'table-responsive'},
+        e('table',{className:'table table-sm align-middle'},
+          e('thead',null, e('tr',null, e('th',null,'Pos'), e('th',null,'High (≤10)'), e('th',null,'Med (11–20)'), e('th',null,'Low (21–30)'), e('th',null,'Total'))),
+          e('tbody',null,
+            positions.map(pos=>{
+              const row=table[pos];
+              return e('tr',{key:pos},
+                e('td',null,pos),
+                e('td',null, e('span',{className:'band high'}, row.high||0)),
+                e('td',null, e('span',{className:'band medium'}, row.medium||0)),
+                e('td',null, e('span',{className:'band low'}, row.low||0)),
+                e('td',null, row.total||0),
+              );
+            })
+          )
+        )
+      ),
+      e('div',{className:'small',style:{color:'#c7d6de'}},
+        'Note: players ranked >30 are counted as ',
+        e('span',{className:'band other'}, 'Other'),
+        ' and excluded from H/M/L above. If you want an explicit “Other” column, I can add it.'
+      )
+    );
+  }
+
+  /* Views */
+  function DraftView(){
+    const me=league.teams[0]; const myMax=maxBidForTeam(me,league.drafted,0,state.rosterSize);
+    const draftedSorted=[...league.drafted].sort((a,b)=> new Date(b.ts||0)-new Date(a.ts||0));
+    const draftedShown=state.draftedView==='last3'?draftedSorted.slice(0,3):state.draftedView==='last10'?draftedSorted.slice(0,10):draftedSorted;
+
+    const myByPos=myRoster.reduce((acc,p)=>{(acc[p.pos] ||= []).push(p); return acc;},{});
+    const flexChip=`${needInfo.flexFilled} / ${needInfo.flexReq}`;
+
+    return e('div',{className:'row g-3 stack-portrait'},
+      e('div',{className:'col-12'},
+        e('div',{className:'d-flex flex-wrap gap-3'},
+          e('div',{className:'metric flex-fill'},
+            e('div',{className:'label'},'Active League'),
+            e('div',{className:'value'}, state.scoring==='PPR'?'PPR':'Standard'),
+            e('div',{className:'mt-2 d-inline-flex gap-2'},
+              e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'PPR'}))},'PPR'),
+              e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'STD'}))},'Standard')
+            ),
+            e('div',{className:'mt-2',style:{color:'#c7d6de'}},
+              'Teams chosen: ', (new Set(league.drafted.map(p=>p.teamAbbr))).size,
+              ' • Teams remaining in hat: ', 32 - (new Set(league.drafted.map(p=>p.teamAbbr))).size
+            )
+          ),
+          e('div',{className:'metric'}, e('div',{className:'label'},'My Budget Left'), e('div',{className:'value'},'$'+Number(200-(me.spent||0)).toFixed(2))),
+          e('div',{className:'metric'}, e('div',{className:'label'},'My Max Bid'), e('div',{className:'value'},'$'+myMax.toFixed(2))),
+          e('div',{className:'metric'}, e('div',{className:'label'},'FLEX Filled'), e('div',{className:'value'},flexChip),
+            needInfo.need.FLEX>0 ? e('div',{className:'small text-warning mt-1'}, needInfo.need.FLEX,' FLEX still needed') : e('div',{className:'small text-success mt-1'},'FLEX complete')
+          )
+        )
+      ),
+
+      /* Filters */
+      e('div',{className:'col-12 col-lg-4 order-2 order-lg-1'},
+        e('div',{className:'panel p-3 sticky'},
+          e('div',{className:'panel-title mb-2'},'Filters'),
+          e('div',{className:'mb-3'},
+            e('label',{className:'form-label'},'Team Drawn From Hat'),
+            e('select',{className:'form-select',value:state.selectedTeam,onChange:ev=>setState(s=>({...s,selectedTeam:ev.target.value}))},
+              [e('option',{key:'',value:''},'All Teams')].concat(TEAMS.map(t=>e('option',{key:t.abbr,value:t.abbr},`${t.abbr} — ${t.name}`)))
+            )
+          ),
+          e('div',{className:'mb-3'},
+            e('label',{className:'form-label'},'Position'),
+            e('ul',{className:'nav nav-pills flex-wrap gap-1'},
+              ['ALL','QB','RB','WR','TE','K','DEF'].map(pos =>
+                e('li',{className:'nav-item',key:pos},
+                  e('button',{className:'nav-link '+(state.pos===pos?'active':''),onClick:()=>setState(s=>({...s,pos}))},pos)
+                )
+              )
+            )
+          ),
+          e('div',{className:'mb-2'},
+            e('input',{type:'search',className:'form-control',placeholder:'Search players…',value:state.q,onChange:e2=>setState(s=>({...s,q:e2.target.value}))})
+          )
+        )
+      ),
+
+      /* My Roster + Drafted */
+      e('div',{className:'col-12 col-lg-4 order-1 order-lg-2'},
+        e('div',{className:'panel p-3'},
+          e('div',{className:'d-flex justify-content-between align-items-center mb-2'},
+            e('div',{className:'panel-title m-0'},'My Roster ('+state.scoring+')'),
+            e('button',{className:'btn btn-chip',onClick:()=>setState(s=>({...s,myRosterCollapsed:!s.myRosterCollapsed}))},
+              state.myRosterCollapsed?'Expand':'Collapse'
+            )
+          ),
+          state.myRosterCollapsed
+          ? e(MyRosterCollapsedSummary,{list:myRoster})
+          : (function(){
+              const order=['QB','RB','WR','TE','K','DEF','BN']; const groups=[];
+              order.forEach(pos=>{
+                const list=(myByPos[pos]||[]).slice().sort((a,b)=> (a.name>b.name?1:-1));
+                if(list.length){
+                  groups.push(
+                    e('div',{key:pos,className:'mb-2'},
+                      e('div',{className:'d-flex justify-content-between align-items-center mb-1'},
+                        e('span',{className:'pill'},pos,' • ',list.length),
+                        pos==='TE'? e('span',{className:'pill'},'FLEX: ',needInfo.flexFilled,' / ',(state.targets.FLEX||0)):null
+                      ),
+                      e('ul',{className:'list-group'},
+                        list.map(p=>{
+                          const pr=computePosRank(p,currentPlayers); const b=rankBand(pr); const rankText=pr?`#${pr}`:'—';
+                          return e('li',{key:p.uid,className:'list-group-item d-flex justify-content-between align-items-center'},
+                            e('span',{className:'d-flex align-items-center'},
+                              e(TeamLogo,{abbr:p.teamAbbr,big:true}),
+                              e('span',null,
+                                e('span',{className:`band ${b} me-2`,title:`${p.pos} position rank ${rankText}`},rankText),
+                                e('strong',null,p.name),
+                                p.bye? e('span',{className:'ms-1',style:{color:'#c7d6de'}},'• Bye ',p.bye):null
+                              )
+                            ),
+                            e('span',{className:'money'},'$'+Number(p.cost||0).toFixed(2))
+                          );
+                        })
+                      )
+                    )
+                  );
+                }
+              });
+              return groups.length? groups : e('div',{className:'text-muted small'},'No players yet');
+            })()
+        ),
+
+        e('div',{className:'panel p-3 mt-3'},
+          e('div',{className:'d-flex justify-content-between align-items-center mb-2'},
+            e('div',{className:'panel-title m-0'},'Drafted (', state.draftedView==='last3'?'Last 3':state.draftedView==='last10'?'Last 10':'All',')'),
+            e('div',{className:'d-inline-flex gap-2'},
+              e('button',{className:'btn-chip '+(state.draftedView==='last3'?'active':''),onClick:()=>setState(s=>({...s,draftedView:'last3'}))},'Last 3'),
+              e('button',{className:'btn-chip '+(state.draftedView==='last10'?'active':''),onClick:()=>setState(s=>({...s,draftedView:'last10'}))},'Last 10'),
+              e('button',{className:'btn-chip '+(state.draftedView==='all'?'active':''),onClick:()=>setState(s=>({...s,draftedView:'all'}))},'All')
+            )
+          ),
+          (function(){
+            const sorted=[...league.drafted].sort((a,b)=> new Date(b.ts||0)-new Date(a.ts||0));
+            const shown=state.draftedView==='last3'?sorted.slice(0,3):state.draftedView==='last10'?sorted.slice(0,10):sorted;
+            return shown.length? e('ul',{className:'list-group'}, shown.map(p=>e(DraftListItem,{key:p.uid,entry:p}))) : e('div',{className:'text-muted'},'No picks yet');
+          })()
+        )
+      ),
+
+      /* Players + Market Analytics */
+      e('div',{className:'col-12 col-lg-8 order-3'},
+        e('div',{className:'panel p-3 mb-3'},
+          e('div',{className:'panel-title mb-2'}, state.selectedTeam?('Roster — '+(TEAMS.find(t=>t.abbr===state.selectedTeam)?.name||state.selectedTeam)):'All Available Players'),
+          e('div',{className:'table-responsive',style:{maxHeight:'60vh',overflow:'auto',borderRadius:'12px'}},
+            e('table',{className:'table table-sm align-middle'},
+              e('thead',null, e('tr',null, e('th',null,'Pos Rank'), e('th',null,'Player / Team / Pos / SoS'), e('th',null,'Quick Draft'))),
+              e('tbody',null, roster.map(p=> e(PlayerRow,{key:p.id+'-'+p.name,p})))
+            )
+          )
+        ),
+        e('div',{className:'panel p-3'},
+          e('div',{className:'panel-title mb-2'},'Market Prices by Position Tier (Avg $ • count)'),
+          (function(){
+            const positions=['QB','RB','WR','TE','K','DEF'];
+            return e('div',{className:'table-responsive'},
+              e('table',{className:'table table-sm align-middle'},
+                e('thead',null, e('tr',null, e('th',null,''), ...TIER_LABELS.map(l=>e('th',{key:l},l)))),
+                e('tbody',null,
+                  positions.map(pos=> e('tr',{key:pos}, e('th',null,pos), ...TIER_LABELS.map(l=> e('td',{key:l}, market[pos][l] || '—'))))
+                )
+              )
+            );
+          })()
+        )
+      )
+    );
+  }
+
+  function ManagersView(){
+    const lg=state.leagues[state.scoring];
+
+    function tierCountsForTeam(teamId){
+      const counts={QB:{},RB:{},WR:{},TE:{}}; 
+      for(const p of lg.drafted){
+        if(p.draftedBy!==teamId) continue;
+        if(!counts[p.pos]) continue;
+        const pr=computePosRank(p,currentPlayers);
+        const lab=tierForRank(pr);
+        counts[p.pos][lab]=(counts[p.pos][lab]||0)+1;
+      }
+      return counts;
+    }
+    function topTalentScore(teamId){
+      let n=0; for(const p of lg.drafted){ if(p.draftedBy===teamId && ['QB','RB','WR','TE'].includes(p.pos)){ const pr=computePosRank(p,currentPlayers); if(pr!=null && pr<=10) n++; } } return n;
+    }
+
+    const myTop10=topTalentScore(0);
+    const othersIds=lg.teams.filter(t=>t.id!==0).map(t=>t.id);
+    const othersTop10=othersIds.map(id=>topTalentScore(id));
+    const othersAvgTop10 = othersTop10.length? (othersTop10.reduce((a,b)=>a+b,0)/othersTop10.length) : 0;
+
+    return e('div',{className:'row g-3'},
+      e('div',{className:'col-12'},
+        e('div',{className:'panel p-3'},
+          e('div',{className:'panel-title mb-2'},'League Participants — ',state.scoring),
+          e('div',{className:'table-responsive'},
+            e('table',{className:'table table-sm align-middle'},
+              e('thead',null, e('tr',null,
+                e('th',null,'Team'),
+                e('th',null,'$ Left'),
+                e('th',null,'Max Bid'),
+                e('th',null,'# Drafted'),
+                e('th',null,'By Position')
+              )),
+              e('tbody',null,
+                lg.teams.map(t=>{
+                  const c=countsByPosForTeam(lg.drafted,t.id);
+                  const draftedCt=countDraftedByTeam(lg.drafted,t.id);
+                  const left=Number(200-(t.spent||0)).toFixed(2);
+                  const maxB=maxBidForTeam(t,lg.drafted,t.id,state.rosterSize);
+                  const trProps = {key:t.id, className: t.id===0?'manager-my':''};
+                  return e('tr',trProps,
+                    e('td',null,t.name),
+                    e('td',null,'$',left),
+                    e('td',null,'$',maxB.toFixed(2)),
+                    e('td',null,draftedCt),
+                    e('td',null,
+                      e('span',{className:'pill me-1'},'QB ',c.QB),
+                      e('span',{className:'pill me-1'},'RB ',c.RB),
+                      e('span',{className:'pill me-1'},'WR ',c.WR),
+                      e('span',{className:'pill me-1'},'TE ',c.TE),
+                      e('span',{className:'pill me-1'},'K ',c.K),
+                      e('span',{className:'pill me-1'},'DEF ',c.DEF)
+                    )
+                  );
+                })
+              )
+            )
+          )
+        )
+      ),
+
+      e('div',{className:'col-12'},
+        e('div',{className:'panel p-3'},
+          e('div',{className:'panel-title mb-2'},'Tier Snapshot by Team (QB/RB/WR/TE)'),
+          (function(){
+            const shortTiers=['Top 5','6–10','11–15','16–20'];
+            return e('div',{className:'table-responsive'},
+              e('table',{className:'table table-sm align-middle'},
+                e('thead',null,
+                  e('tr',null,
+                    e('th',null,'Team'),
+                    ...['QB','RB','WR','TE'].map(pos=> e('th',{key:'h'+pos,colSpan:shortTiers.length,style:{textAlign:'center'}},pos))
+                  ),
+                  e('tr',null,
+                    e('th',null,''),
+                    ...['QB','RB','WR','TE'].flatMap(pos=> shortTiers.map(t=> e('th',{key:pos+t,style:{fontWeight:500}},t)))
+                  )
+                ),
+                e('tbody',null,
+                  lg.teams.map(t=>{
+                    const cnt=tierCountsForTeam(t.id);
+                    const row=[e('td',{key:'name'}, t.id===0?('⭐ '+t.name):t.name)];
+                    ['QB','RB','WR','TE'].forEach(pos=>{
+                      shortTiers.forEach(tier=>{
+                        row.push(e('td',{key:pos+tier}, cnt[pos]?.[tier]||0));
+                      });
+                    });
+                    return e('tr',{key:'row'+t.id,className:t.id===0?'manager-my':''}, ...row);
+                  })
+                )
+              )
+            );
+          })()
+        )
+      ),
+
+      e('div',{className:'col-12'},
+        e('div',{className:'panel p-3'},
+          e('div',{className:'panel-title mb-2'},'My Team Insights vs League'),
+          (function(){
+            const lgHere=state.leagues[state.scoring];
+            const myTop10Only=myTop10;
+            let leagueTop10=0;
+            for(const p of lgHere.drafted){ if(['QB','RB','WR','TE'].includes(p.pos)){ const pr=computePosRank(p,currentPlayers); if(pr!=null && pr<=10) leagueTop10++; } }
+            const pctTop10 = leagueTop10>0 ? ((myTop10Only/leagueTop10)*100).toFixed(1)+'%' : '—';
+            // Quick tier deltas (Top 5..16–20)
+            const myCounts={}, othersCounts={};
+            for(const p of lgHere.drafted){
+              const pr=computePosRank(p,currentPlayers); const lab=tierForRank(pr);
+              const target=(p.draftedBy===0)? myCounts : othersCounts;
+              target[lab]=(target[lab]||0)+1;
+            }
+            return e('div',{className:'row g-3'},
+              e('div',{className:'col-12 col-md-6'},
+                e('div',{className:'metric'},
+                  e('div',{className:'label'},'My Top-10 Players (QB/RB/WR/TE)'),
+                  e('div',{className:'value'}, myTop10Only),
+                  e('div',{className:'mt-2',style:{color:'#c7d6de'}},'Others avg: ', othersAvgTop10.toFixed(2), ' • Share of league’s Top-10: ', pctTop10)
+                )
+              ),
+              e('div',{className:'col-12 col-md-6'},
+                e('div',{className:'metric'},
+                  e('div',{className:'label'},'Quick Tier Count (All Positions)'),
+                  e('div',{className:'mt-2'}, ['Top 5','6–10','11–15','16–20'].map(l=> e('span',{key:l,className:'pill me-2'}, l,' ', (myCounts[l]||0), ' vs ', (othersCounts[l]||0))))
+                )
+              )
+            );
+          })()
+        )
+      )
+    );
+  }
+
+  function SettingsView(){
+    return e('div',{className:'row g-3'},
+      e('div',{className:'col-12 col-xl-6'},
+        e('div',{className:'panel p-3'},
+          e('div',{className:'panel-title mb-2'},'Imports & Default League'),
+          e('div',{className:'mb-2',style:{color:'#c7d6de'}},'CSV imports are shared; drafted/budgets are per league.'),
+          e('div',{className:'mb-3 d-flex gap-2 flex-wrap'},
+            e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'PPR'}))},'Default to PPR'),
+            e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'STD'}))},'Default to Standard')
+          ),
+          e('div',{className:'mb-3'},
+            e('label',{className:'form-label'},'Import FantasyPros CSV — PPR'),
+            e('input',{type:'file',accept:'.csv',className:'form-control',onChange:ev=>{const f=ev.target.files[0]; if(!f)return; Papa.parse(f,{header:true,skipEmptyLines:true,transformHeader:h=>(h||'').trim(),complete:(res)=>{const players=res.data.map(parseFPRowFlexible).filter(Boolean).sort((a,b)=>(a.rank||9999)-(b.rank||9999)); setState(s=>({...s,playersPPR:players}));}});}}),
+            e('div',{className:'small',style:{color:'#c7d6de'}}, state.playersPPR.length?('Loaded '+state.playersPPR.length+' (PPR)'):'No PPR file loaded yet')
+          ),
+          e('div',{className:'mb-3'},
+            e('label',{className:'form-label'},'Import FantasyPros CSV — Standard'),
+            e('input',{type:'file',accept:'.csv',className:'form-control',onChange:ev=>{const f=ev.target.files[0]; if(!f)return; Papa.parse(f,{header:true,skipEmptyLines:true,transformHeader:h=>(h||'').trim(),complete:(res)=>{const players=res.data.map(parseFPRowFlexible).filter(Boolean).sort((a,b)=>(a.rank||9999)-(b.rank||9999)); setState(s=>({...s,playersSTD:players}));}});}}),
+            e('div',{className:'small',style:{color:'#c7d6de'}}, state.playersSTD.length?('Loaded '+state.playersSTD.length+' (Standard)'):'No Standard file loaded yet')
+          ),
+          e('div',{className:'mb-3'},
+            e('label',{className:'form-label'},'Import Strength of Schedule CSV (Team,QB,RB,WR,TE,K,DST)'),
+            e('input',{type:'file',accept:'.csv',className:'form-control',onChange:ev=>importSOS(ev.target.files[0])}),
+            e('div',{className:'small',style:{color:'#c7d6de'}}, Object.keys(state.sosMap||{}).length?('Loaded SoS for '+Object.keys(state.sosMap).length+' teams'):'No SoS file loaded yet')
+          )
+        )
+      ),
+      e('div',{className:'col-12 col-xl-6'},
+        e('div',{className:'panel p-3'},
+          e('div',{className:'panel-title mb-2'},'Roster & Positions'),
+          e('div',{className:'mb-3'},
+            e('label',{className:'form-label'},'Total Roster Size'),
+            e('input',{type:'number',min:1,step:1,value:state.rosterSize,onChange:e2=>setState(s=>({...s,rosterSize:Math.max(1,Number(e2.target.value||16))})),className:'form-control'})
+          ),
+          e('div',{className:'row g-2'},
+            ['QB','RB','WR','TE','FLEX','K','DEF','BN'].map(key =>
+              e('div',{className:'col-6',key},
+                e('label',{className:'form-label'}, key+' slots'),
+                e('input',{type:'number',min:0,step:1,className:'form-control',value:state.targets[key],onChange:ev=>{
+                  const v=Math.max(0,Number(ev.target.value||0)); setState(s=>({...s,targets:{...s.targets,[key]:v}}));
+                }})
+              )
+            )
+          ),
+          e('div',{className:'small',style:{color:'#c7d6de'}},'FLEX = RB/WR/TE. Max Bid reserves $0.50 per remaining slot.')
+        )
+      ),
+      e('div',{className:'col-12'},
+        e('div',{className:'panel p-3 d-flex justify-content-between align-items-center'},
+          e('div',null, e('div',{className:'panel-title'},'All set!'), e('div',{className:'small',style:{color:'#c7d6de'}},'Use Draft during the auction; Managers shows budgets, tiers & insights.')),
+          e('button',{className:'btn btn-primary',onClick:()=>window.switchView('draft')},'Go to Draft')
+        )
+      )
+    );
+  }
+
+  function DetailsModal(){
+    const p=state.detail; if(!p) return null;
+    const myMax=maxBidForTeam(league.teams[0],league.drafted,0,state.rosterSize);
+    const pr=computePosRank(p,currentPlayers); const sos=state.sosMap?.[p.teamAbbr]?.[p.pos];
+    return e('div',{className:'modal show d-block',tabIndex:'-1',role:'dialog','aria-modal':'true'},
+      e('div',{className:'modal-dialog modal-dialog-scrollable'},
+        e('div',{className:'modal-content'},
+          e('div',{className:'modal-header'},
+            e('div',null, e('div',{className:'h5 m-0'},p.name), e('div',{className:'small',style:{color:'#c7d6de'}}, p.teamAbbr,' • ',p.pos)),
+            e('button',{type:'button',className:'btn-close','aria-label':'Close',onClick:()=>setState(s=>({...s,detail:null}))})
+          ),
+          e('div',{className:'modal-body'},
+            e('div',{className:'d-flex align-items-center gap-2 mb-2'},
+              e(TeamLogo,{abbr:p.teamAbbr,big:true}),
+              e('span',{className:`band ${rankBand(pr)}`}, 'Pos Rank ', pr?('#'+pr):'—')
+            ),
+            sos? e('div',{className:'mb-2'}, e('span',{className:'sos',title:sos.blurb}, e('span',{className:'stars'},starsTxt(sos.stars||0)), 'SoS')):null,
+            e('div',{className:'small',style:{color:'#d4e7ef'}}, 'Overall Rank: ',p.rank, p.bye?` • Bye ${p.bye}`:'')
+          ),
+          e('div',{className:'modal-footer d-flex justify-content-between align-items-center'},
+            e('span',{className:'pill'},'My Max Bid: $'+myMax.toFixed(2)),
+            (function(){const[teamId,setTeamId]=useState(0); const[costStr,setCostStr]=useState(''); const sel=league.teams.find(t=>t.id===teamId); const mb=maxBidForTeam(sel,league.drafted,teamId,state.rosterSize); const cv=parseFloat(costStr); const ok=!isNaN(cv)&&cv>=MIN_BID&&cv<=mb&&((cv*2)%1===0);
+              return e('div',{className:'d-flex gap-2'},
+                e('select',{className:'form-select form-select-sm',style:{width:'160px'},value:teamId,onChange:e=>setTeamId(Number(e.target.value))},league.teams.map(t=>e('option',{key:t.id,value:t.id},t.name))),
+                e('input',{type:'number',inputMode:'decimal',step:0.5,min:MIN_BID,placeholder:'$',value:costStr,onChange:e=>setCostStr(e.target.value),className:'form-control form-control-sm',style:{width:'90px'}}),
+                e('button',{className:'btn btn-sm btn-primary',disabled:!ok,onClick:()=>{if(ok){draftPlayer(p,teamId,cv); setCostStr('');}}}, ok?'Draft':`Max $${mb.toFixed(2)}`)
+              );
+            })()
+          )
+        )
+      )
+    );
+  }
+
+  function EditModal(){
+    const entry=state.editDraft; if(!entry) return null;
+    let newTeam=entry.draftedBy; let newCostStr=String(entry.cost?.toFixed?entry.cost.toFixed(2):entry.cost??'');
+    return e('div',{className:'modal show d-block',tabIndex:'-1',role:'dialog','aria-modal':'true'},
+      e('div',{className:'modal-dialog'},
+        e('div',{className:'modal-content'},
+          e('div',{className:'modal-header'},
+            e('h5',{className:'modal-title'},'Edit Draft — ',entry.name,' (',state.scoring,')'),
+            e('button',{type:'button',className:'btn-close','aria-label':'Close',onClick:()=>setState(s=>({...s,editDraft:null}))})
+          ),
+          e('div',{className:'modal-body'},
+            e('div',{className:'mb-3'},
+              e('label',{className:'form-label'},'Manager'),
+              e('select',{defaultValue:entry.draftedBy,className:'form-select',onChange:ev=>{newTeam=Number(ev.target.value)}}, league.teams.map(t=>e('option',{key:t.id,value:t.id},t.name)))
+            ),
+            e('div',{className:'mb-3'},
+              e('label',{className:'form-label'},'Amount ($ — step 0.50, min 0.50)'),
+              e('input',{type:'number',inputMode:'decimal',min:MIN_BID,step:0.5,value:newCostStr,className:'form-control',onChange:ev=>{newCostStr=ev.target.value}})
+            ),
+            e('div',{className:'small',style:{color:'#c7d6de'}},'Saving adjusts team budgets & Max Bids in this league.')
+          ),
+          e('div',{className:'modal-footer'},
+            e('button',{className:'btn btn-outline-contrast',onClick:()=>setState(s=>({...s,editDraft:null}))},'Cancel'),
+            e('button',{className:'btn btn-primary',onClick:()=>{const amt=parseFloat(newCostStr); if(!isNaN(amt)&&amt>=MIN_BID&&((amt*2)%1===0)){applyEdit(entry.uid,newTeam,amt);} }},'Save changes')
+          )
+        )
+      )
+    );
+  }
+
+  /* Router-ish */
+  useEffect(()=>{const view=window.location.hash?.slice(1); if(view==='settings'||view==='managers'){ if(view!==state.view) setTimeout(()=>window.switchView(view),0);} },[state.view]);
+
+  return e(React.Fragment,null,
+    state.view==='settings'? e(SettingsView) : state.view==='managers'? e(ManagersView) : e(DraftView),
+    e(DetailsModal),
+    e(EditModal)
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(e(App));
+</script>
+</body>
+</html>
