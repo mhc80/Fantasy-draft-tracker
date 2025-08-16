@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Fantasy Auction Draft Tracker — v5.9 (Autocomplete)</title>
+<title>Fantasy Auction Draft Tracker — v6.0</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <!-- React (UMD) -->
@@ -118,7 +118,7 @@ body{
 
 <main class="container" id="root"></main><script>
 const e=React.createElement; const {useState,useEffect,useMemo}=React;
-const STORAGE_KEY='auction_tracker_dual_league_dashboard_v5_9';
+const STORAGE_KEY='auction_tracker_dual_league_dashboard_v6_0';
 const MIN_BID=0.5;
 
 /* Logos map (ESPN CDN) */
@@ -130,24 +130,50 @@ function TeamLogo({abbr,big}){const code=LOGO_CODE[abbr]||abbr?.toLowerCase?.()|
 /* Local storage state */
 function useStoredState(initial){const [state,setState]=useState(()=>{const raw=localStorage.getItem(STORAGE_KEY);if(!raw)return initial;try{return JSON.parse(raw)}catch(_){return initial}});useEffect(()=>localStorage.setItem(STORAGE_KEY,JSON.stringify(state)),[state]);return [state,setState];}
 function initialLeagueTeams(names){return Array.from({length:10},(_,i)=>({id:i,name:names?.[i]||(i===0?'My Team':('Team '+(i+1))),spent:0,budget:200}));}
-function initialState(){const names=Array.from({length:10},(_,i)=> i===0?'My Team':'Team '+(i+1));return{
-  view:'draft', scoring:'PPR',
-  playersPPR:[], playersSTD:[],
-  selectedTeam:'', pos:'ALL', q:'',
-  rosterSize:16,
-  targets:{QB:1,RB:2,WR:2,TE:1,FLEX:1,K:1,DEF:1,BN:8},
-  participantNames:names,
-  sosMap:{},
-  leagues:{PPR:{teams:initialLeagueTeams(names), drafted:[]},STD:{teams:initialLeagueTeams(names.map((n,i)=>i===0?'My Team (Std)':n)), drafted:[]}},
-  detail:null, editDraft:null,
-  draftedView:'last3',
-  draftedCollapsed:true,
-  myRosterCollapsed:false
-};}
+function initialState(){
+  const names=Array.from({length:10},(_,i)=> i===0?'My Team':'Team '+(i+1));
+  return{
+    view:'draft', scoring:'PPR',
+    playersPPR:[], playersSTD:[],
+    selectedTeam:'', pos:'ALL', q:'',
+    rosterSize:16,
+    targets:{QB:1,RB:2,WR:2,TE:1,FLEX:1,K:1,DEF:1,BN:8},
+    participantNames:names,
+    sosMap:{},
+    // you can prefill some examples or leave empty {}
+    expertNotes:{
+      // "Ja'Marr Chase":"Elite volume/efficiency; WR1 overall in play if Burrow fully healthy.",
+      // "Bijan Robinson":"Receiving usage + offensive uptick = RB1 ceiling.",
+      // "Malik Nabers":"Immediate alpha profile; WR1 ceiling with volume."
+    },
+    leagues:{
+      PPR:{teams:initialLeagueTeams(names), drafted:[]},
+      STD:{teams:initialLeagueTeams(names.map((n,i)=>i===0?'My Team (Std)':n)), drafted:[]}
+    },
+    detail:null, editDraft:null,
+    draftedView:'last3',
+    draftedCollapsed:true,
+    myRosterCollapsed:false
+  };
+}
 
 /* CSV & SoS parsing (FantasyPros-like) */
 function normalizePos(pos){if(!pos)return'N/A'; const p=String(pos).toUpperCase().trim(); return p.replace(/[0-9]+$/,'').replace('DST','DEF');}
-function parseFPRowFlexible(r,idx){const obj={};for(const k in r) obj[(k||'').trim()]=r[k]; const name=(obj['PLAYER NAME']||obj['Player']||obj['PLAYER']||'').toString().trim(); const team=(obj['TEAM']||obj['Team']||obj['NFL Team']||obj['Tm']||'').toString().trim().toUpperCase(); const pos=normalizePos(obj['POS']||obj['Pos']||obj['Position']||''); const rk=Number(obj['RK']||obj['Rk']||obj['Rank']||obj['Overall']||idx+1); const bye=(obj['BYE']||obj['Bye']||obj['Bye Week']||'').toString().trim(); const sos=(obj['SOS']||'').toString().trim(); const ecrVsAdp=(obj['ECR VS ADP']||obj['ECR vs ADP']||'').toString().trim(); const avgDiff=(obj['AVG. DIFF']||obj['AVG. DIFF ']||'').toString().trim(); const pctOver=(obj['% OVER']||obj['% OVER ']||'').toString().trim(); if(!name) return null; let abbr=team; if(abbr==='GB')abbr='GBP'; if(abbr==='JAC')abbr='JAX'; if(abbr==='LVR')abbr='LV'; if(abbr==='LA')abbr='LAR'; if(abbr==='WSH')abbr='WAS'; return {id:idx,name,teamAbbr:abbr,pos,rank:rk,bye,sos,ecrVsAdp,avgDiff,pctOver,draftedBy:null,cost:null};}
+function parseFPRowFlexible(r,idx){
+  const obj={};for(const k in r) obj[(k||'').trim()]=r[k];
+  const name=(obj['PLAYER NAME']||obj['Player']||obj['PLAYER']||'').toString().trim();
+  const team=(obj['TEAM']||obj['Team']||obj['NFL Team']||obj['Tm']||'').toString().trim().toUpperCase();
+  const pos=normalizePos(obj['POS']||obj['Pos']||obj['Position']||'');
+  const rk=Number(obj['RK']||obj['Rk']||obj['Rank']||obj['Overall']||idx+1);
+  const bye=(obj['BYE']||obj['Bye']||obj['Bye Week']||'').toString().trim();
+  const sos=(obj['SOS']||'').toString().trim();
+  const ecrVsAdp=(obj['ECR VS ADP']||obj['ECR vs ADP']||'').toString().trim();
+  const avgDiff=(obj['AVG. DIFF']||obj['AVG. DIFF ']||'').toString().trim();
+  const pctOver=(obj['% OVER']||obj['% OVER ']||'').toString().trim();
+  if(!name) return null;
+  let abbr=team; if(abbr==='GB')abbr='GBP'; if(abbr==='JAC')abbr='JAX'; if(abbr==='LVR')abbr='LV'; if(abbr==='LA')abbr='LAR'; if(abbr==='WSH')abbr='WAS';
+  return {id:idx,name,teamAbbr:abbr,pos,rank:rk,bye,sos,ecrVsAdp,avgDiff,pctOver,draftedBy:null,cost:null};
+}
 
 function parseStarsFromBlurb(txt){const m=String(txt||'').match(/(\d)\s*star/i); return m?parseInt(m[1],10):null;}
 function parseSOSCsv(rows){
@@ -171,8 +197,18 @@ function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2
 function download(filename,text){const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'})); a.download=filename; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500);}
 function countsByPosForTeam(drafted,teamId){const c={QB:0,RB:0,WR:0,TE:0,K:0,DEF:0}; for(const d of drafted) if(d.draftedBy===teamId){ if(c[d.pos]!=null) c[d.pos]+=1; } return c;}
 function countDraftedByTeam(drafted,teamId){return drafted.reduce((n,p)=> n + (p.draftedBy===teamId ? 1:0),0);}
-function maxBidForTeam(team,drafted,teamId,rosterSize){const draftedCount=countDraftedByTeam(drafted,teamId); const remainingSlots=Math.max(rosterSize-draftedCount,0); const reserveForMin=Math.max(remainingSlots-1,0)*MIN_BID; const available=(team?.budget??0)-reserveForMin; return Number(Math.max(available,0).toFixed(2));}
-function computePosRank(player,allPlayers){const samePos=allPlayers.filter(p=>p.pos===player.pos).sort((a,b)=>(a.rank||9999)-(b.rank||9999)); const idx=samePos.findIndex(p=>p.name===player.name && p.teamAbbr===player.teamAbbr); return idx<0?null:(idx+1);}
+function maxBidForTeam(team,drafted,teamId,rosterSize){
+  const draftedCount=countDraftedByTeam(drafted,teamId);
+  const remainingSlots=Math.max(rosterSize-draftedCount,0);
+  const reserveForMin=Math.max(remainingSlots-1,0)*MIN_BID;
+  const available=(team?.budget??0)-reserveForMin;
+  return Number(Math.max(available,0).toFixed(2));
+}
+function computePosRank(player,allPlayers){
+  const samePos=allPlayers.filter(p=>p.pos===player.pos).sort((a,b)=>(a.rank||9999)-(b.rank||9999));
+  const idx=samePos.findIndex(p=>p.name===player.name && p.teamAbbr===player.teamAbbr);
+  return idx<0?null:(idx+1);
+}
 function rankBand(pr){if(pr==null)return'other'; if(pr<=10)return'high'; if(pr<=20)return'medium'; if(pr<=30)return'low'; return'other';}
 function starsTxt(n){const x=Math.max(0,Math.min(5,n||0)); return '★'.repeat(x)+'☆'.repeat(5-x);}
 
@@ -180,8 +216,17 @@ const TIERS=[{label:'Top 5',min:1,max:5},{label:'6–10',min:6,max:10},{label:'1
 const TIER_LABELS = TIERS.map(t=>t.label);
 function tierForRank(r){ if(r==null) return '41+'; for(const t of TIERS){ if(r>=t.min && r<=t.max) return t.label; } return '41+'; }
 
-/* FLEX */
-function computeFlexUsage(have,targets){const baseRB=targets.RB||0, baseWR=targets.WR||0, baseTE=targets.TE||0, flexReq=targets.FLEX||0; const surplusRB=Math.max((have.RB||0)-baseRB,0); const surplusWR=Math.max((have.WR||0)-baseWR,0); const surplusTE=Math.max((have.TE||0)-baseTE,0); const usable=surplusRB+surplusWR+surplusTE; const flexFilled=Math.min(usable,flexReq); const flexRemaining=Math.max(flexReq-flexFilled,0); return {flexFilled,flexRemaining};}function App(){
+/* FLEX math */
+function computeFlexUsage(have,targets){
+  const baseRB=targets.RB||0, baseWR=targets.WR||0, baseTE=targets.TE||0, flexReq=targets.FLEX||0;
+  const surplusRB=Math.max((have.RB||0)-baseRB,0);
+  const surplusWR=Math.max((have.WR||0)-baseWR,0);
+  const surplusTE=Math.max((have.TE||0)-baseTE,0);
+  const usable=surplusRB+surplusWR+surplusTE;
+  const flexFilled=Math.min(usable,flexReq);
+  const flexRemaining=Math.max(flexReq-flexFilled,0);
+  return {flexFilled,flexRemaining};
+}function App(){
   const [state,setState]=useStoredState(initialState());
   useEffect(()=>{window.switchView=(v)=>{setState(s=>({...s,view:v})); ['tab-draft','tab-settings','tab-managers'].forEach(id=>{const el=document.getElementById(id); if(el) el.classList.remove('active');}); const map={draft:'tab-draft',settings:'tab-settings',managers:'tab-managers'}; const el=document.getElementById(map[v]); if(el) el.classList.add('active');}},[]);
 
@@ -285,23 +330,31 @@ function computeFlexUsage(have,targets){const baseRB=targets.RB||0, baseWR=targe
   }
   function exportDraftCSV(){
     const rows=[['League','Manager','Player','NFL Team','Pos','Cost','Timestamp']];
-    for(const p of league.drafted){const mgr=league.teams.find(t=>t.id===p.draftedBy)?.name||('Team '+(p.draftedBy+1)); rows.push([state.scoring,mgr,p.name,p.teamAbbr,p.pos,p.cost,p.ts||'']);}
+    for(const p of league.drafted){
+      const mgr=league.teams.find(t=>t.id===p.draftedBy)?.name||('Team '+(p.draftedBy+1));
+      rows.push([state.scoring,mgr,p.name,p.teamAbbr,p.pos,p.cost,p.ts||'']);
+    }
     const csv=rows.map(r=>r.map(x=>{const s=(x==null?'':String(x)); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;}).join(',')).join('\n');
     download(`draft_results_${state.scoring}.csv`,csv);
   }
 
   function sosFor(p){ return state.sosMap?.[p.teamAbbr]?.[p.pos]; }
 
-  /* -------- Autocomplete (Intellisense) -------- */
-  function normalize(s){ return String(s||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); }
-  function AutoCompleteSearch({value,onChange,players,onSelect}){
+  /* -------- Autocomplete (Intellisense) — fixed for iPad/Safari -------- */
+  function AutoCompleteSearch({value,onChange,players}){
     const [open,setOpen]=useState(false);
     const [hi,setHi]=useState(0);
-    const normQ=normalize(value);
-    const suggestions=useMemo(()=>{
+    const [text,setText]=useState(value||'');
+    const inputRef = React.useRef(null);
+
+    useEffect(()=>{ setText(value||''); },[value]);
+
+    function normalize(s){ return String(s||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); }
+    const normQ = normalize(text);
+
+    const suggestions = useMemo(()=>{
       if(!normQ) return [];
-      const seen=new Set();
-      const out=[];
+      const seen=new Set(); const out=[];
       for(const p of players){
         const key=p.name+'|'+p.teamAbbr;
         if(seen.has(key)) continue;
@@ -313,30 +366,39 @@ function computeFlexUsage(have,targets){const baseRB=targets.RB||0, baseWR=targe
       return out;
     },[normQ,players]);
 
-    useEffect(()=>{ if(!value) setOpen(false); },[value]);
+    function refocus(){ requestAnimationFrame(()=>{ if(inputRef.current){ inputRef.current.focus({preventScroll:true}); } }); }
+
+    function handleInput(v){
+      setText(v);
+      onChange(v);           // updates state.q to filter the main table
+      setOpen(!!v);
+      setHi(0);
+      refocus();
+    }
 
     function choose(idx){
       const p=suggestions[idx]; if(!p) return;
-      onChange(p.name);
+      handleInput(p.name);
       setOpen(false);
-      // Open details immediately (quick select)
-      setState(s=>({...s, detail:p}));
+      setState(s=>({...s, detail:p})); // open player details immediately
+      refocus();
     }
 
     return e('div',{className:'autocomplete'},
       e('input',{
         id:'search',
+        ref:inputRef,
         type:'search',
         className:'form-control',
         placeholder:'Search players…',
-        value,
-        onChange:(ev)=>{ onChange(ev.target.value); setOpen(!!ev.target.value); setHi(0); },
-        onFocus:()=>{ if(value) setOpen(true); },
+        value:text,
+        onInput:(ev)=>handleInput(ev.target.value), // more reliable than onChange on iOS
+        onFocus:()=>{ if(text) setOpen(true); },
         onBlur:()=>{ setTimeout(()=>setOpen(false),120); }, // allow click
         onKeyDown:(ev)=>{
           if(!open) return;
-          if(ev.key==='ArrowDown'){ ev.preventDefault(); setHi(h=> Math.min(h+1, Math.max(suggestions.length-1,0))); }
-          else if(ev.key==='ArrowUp'){ ev.preventDefault(); setHi(h=> Math.max(h-1,0)); }
+          if(ev.key==='ArrowDown'){ ev.preventDefault(); setHi(h=>Math.min(h+1, Math.max(suggestions.length-1,0))); }
+          else if(ev.key==='ArrowUp'){ ev.preventDefault(); setHi(h=>Math.max(h-1,0)); }
           else if(ev.key==='Enter'){ ev.preventDefault(); choose(hi); }
           else if(ev.key==='Escape'){ setOpen(false); }
         }
@@ -494,8 +556,7 @@ function computeFlexUsage(have,targets){const baseRB=targets.RB||0, baseWR=targe
           e('div',{className:'mb-2'}, e(AutoCompleteSearch,{
             value:state.q,
             onChange:(v)=>setState(s=>({...s,q:v})),
-            players:currentPlayers,
-            onSelect:(p)=>{} // handled inside AutoComplete (opens details)
+            players:currentPlayers
           }))
         )
       ),
@@ -755,7 +816,7 @@ function computeFlexUsage(have,targets){const baseRB=targets.RB||0, baseWR=targe
     const initialNames = (state.participantNames && state.participantNames.length === 10)
       ? state.participantNames
       : (state.leagues[state.scoring].teams.map(t => t.name));
-    const [names, setNames] = React.useState(initialNames);
+    const [names, setNames] = useState(initialNames);
 
     function onNameChange(i, value){
       const next = names.slice();
@@ -862,6 +923,38 @@ function computeFlexUsage(have,targets){const baseRB=targets.RB||0, baseWR=targe
           e('div',{className:'small mt-2',style:{color:'#c7d6de'}},
             'Saving updates the team name shown in Draft quick-draft menus and Managers tables. Draft history stays intact.'
           )
+        ),
+
+        /* Expert Notes editor */
+        e('div',{className:'panel p-3 mt-3'},
+          e('div',{className:'panel-title mb-2'},'Expert Notes (paste summaries per player)'),
+          e('div',{className:'small mb-2',style:{color:'#c7d6de'}},
+            'One per line as: Player Name — note. Example: ',
+            "Ja'Marr Chase — Elite target share; WR1 repeat in play."
+          ),
+          (function(){
+            const [raw,setRaw]=useState(Object.entries(state.expertNotes||{})
+              .map(([k,v])=>`${k} — ${v}`).join('\n'));
+            function save(){
+              const map={};
+              raw.split('\n').forEach(line=>{
+                const idx=line.indexOf('—');
+                if(idx>0){
+                  const name=line.slice(0,idx).trim();
+                  const note=line.slice(idx+1).trim();
+                  if(name) map[name]=note;
+                }
+              });
+              setState(s=>({...s, expertNotes: map}));
+            }
+            return e('div',null,
+              e('textarea',{className:'form-control',rows:6,value:raw,onChange:ev=>setRaw(ev.target.value)}),
+              e('div',{className:'mt-2 d-flex gap-2'},
+                e('button',{className:'btn btn-primary',onClick:save},'Save Notes'),
+                e('button',{className:'btn btn-outline-contrast',onClick:()=>setRaw('')},'Clear')
+              )
+            );
+          })()
         )
       ),
 
@@ -879,6 +972,8 @@ function computeFlexUsage(have,targets){const baseRB=targets.RB||0, baseWR=targe
     const league=state.leagues[state.scoring]; const currentPlayers=state.scoring==='PPR'?state.playersPPR:state.playersSTD;
     const myMax=maxBidForTeam(league.teams[0],league.drafted,0,state.rosterSize);
     const pr=computePosRank(p,currentPlayers); const sos=state.sosMap?.[p.teamAbbr]?.[p.pos];
+    const note = (state.expertNotes||{})[p.name];
+
     return e('div',{className:'modal show d-block',tabIndex:'-1',role:'dialog','aria-modal':'true'},
       e('div',{className:'modal-dialog modal-dialog-scrollable'},
         e('div',{className:'modal-content'},
@@ -892,7 +987,13 @@ function computeFlexUsage(have,targets){const baseRB=targets.RB||0, baseWR=targe
               e('span',{className:`band ${rankBand(pr)}`}, 'Pos Rank ', pr?('#'+pr):'—')
             ),
             sos? e('div',{className:'mb-2'}, e('span',{className:'sos',title:sos.blurb}, e('span',{className:'stars'},starsTxt(sos.stars||0)), 'SoS')):null,
-            e('div',{className:'small',style:{color:'#d4e7ef'}}, 'Overall Rank: ',p.rank, p.bye?` • Bye ${p.bye}`:'')
+            e('div',{className:'small',style:{color:'#d4e7ef'}}, 'Overall Rank: ',p.rank, p.bye?` • Bye ${p.bye}`:''),
+            note
+              ? e('div',{className:'mt-3'},
+                  e('div',{className:'small',style:{color:'#c7d6de'}},'Expert Outlook'),
+                  e('div',null, note)
+                )
+              : e('div',{className:'mt-3 small',style:{color:'#7fa0b1'}},'No expert note yet. Add one in Settings → Expert Notes.')
           ),
           e('div',{className:'modal-footer d-flex justify-content-between align-items-center'},
             e('span',{className:'pill'},'My Max Bid: $'+myMax.toFixed(2)),
