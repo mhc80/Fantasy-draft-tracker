@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Fantasy Auction Draft Tracker — v5.6 (Collapsible My Roster)</title>
+<title>Fantasy Auction Draft Tracker — v5.7 (Grey-out + Collapsed Drafted)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -70,6 +70,11 @@ body{
 .modal-content{ background:#0a1419!important; color:var(--text)!important; border:1px solid var(--line)!important }
 .modal-header .btn-close{ filter: invert(1) contrast(2) }
 
+/* NEW: grey-out style for drafted players in the Available list */
+.row-drafted { opacity: .45; filter: grayscale(0.4); pointer-events: none; }
+.row-drafted td { text-decoration: none; }
+.drafted-chip{ background:#1a2d32; border:1px dashed #2f5564; border-radius:999px; padding:.15rem .5rem; font-size:.85rem; color:#d4e7ef }
+
 @media (orientation: portrait){ .stack-portrait{ display:flex; flex-direction:column; gap:1rem } .sticky{ position:static } }
 @media (orientation: landscape) and (max-height: 520px){ .table-responsive{ max-height:50vh !important } }
 </style>
@@ -96,7 +101,7 @@ body{
 
 <script>
 const e=React.createElement; const {useState,useEffect,useMemo}=React;
-const STORAGE_KEY='auction_tracker_dual_league_dashboard_v5_6';
+const STORAGE_KEY='auction_tracker_dual_league_dashboard_v5_7';
 const MIN_BID=0.5;
 
 /* Logos */
@@ -119,6 +124,7 @@ function initialState(){const names=Array.from({length:10},(_,i)=> i===0?'My Tea
   leagues:{PPR:{teams:initialLeagueTeams(names), drafted:[]},STD:{teams:initialLeagueTeams(names.map((n,i)=>i===0?'My Team (Std)':n)), drafted:[]}},
   detail:null, editDraft:null,
   draftedView:'last3',
+  draftedCollapsed:true,            // NEW: start collapsed
   myRosterCollapsed:false
 };}
 
@@ -169,14 +175,19 @@ function App(){
   const league=state.leagues[state.scoring];
   const currentPlayers=state.scoring==='PPR'?state.playersPPR:state.playersSTD;
 
-  /* Lists */
+  /* Lists — include drafted players, but sort undrafted first; grey-out in row */
   const roster=useMemo(()=>{
-    const list=currentPlayers.filter(p=>!p.draftedBy && (!state.selectedTeam || p.teamAbbr===state.selectedTeam));
+    const list=currentPlayers.filter(p=>(!state.selectedTeam || p.teamAbbr===state.selectedTeam));
     const byPos=list.filter(p=>state.pos==='ALL'||p.pos===state.pos);
     const withPR=byPos.map(p=>({...p,_pr:computePosRank(p,currentPlayers)}));
     const q=state.q.trim().toLowerCase();
     const filtered=!q?withPR:withPR.filter(p=>p.name.toLowerCase().includes(q)||p.pos.toLowerCase().includes(q)||p.teamAbbr.toLowerCase().includes(q));
-    return filtered.sort((a,b)=>(a._pr||9999)-(b._pr||9999));
+    return filtered.sort((a,b)=>{
+      // undrafted first, then by position rank
+      const ad=!!a.draftedBy, bd=!!b.draftedBy;
+      if(ad!==bd) return ad?1:-1;
+      return (a._pr||9999)-(b._pr||9999);
+    });
   },[currentPlayers,state.selectedTeam,state.pos,state.q]);
 
   const myRoster=useMemo(()=>league.drafted.filter(p=>p.draftedBy===0),[league.drafted]);
@@ -258,8 +269,19 @@ function App(){
     download(`draft_results_${state.scoring}.csv`,csv);
   }
 
-  /* Quick Draft row */
-  function QuickDraftRow({player}){const[teamId,setTeamId]=useState(0); const[costStr,setCostStr]=useState(''); const selTeam=league.teams.find(t=>t.id===teamId); const maxBid=maxBidForTeam(selTeam,league.drafted,teamId,state.rosterSize); const costVal=parseFloat(costStr); const valid=!isNaN(costVal)&&costVal>=MIN_BID&&costVal<=maxBid&&((costVal*2)%1===0);
+  /* Quick Draft row (disabled if already drafted) */
+  function QuickDraftRow({player}){
+    const drafted = player.draftedBy!=null;
+    const [teamId,setTeamId]=useState(0);
+    const [costStr,setCostStr]=useState('');
+    const selTeam=league.teams.find(t=>t.id===teamId);
+    const maxBid=maxBidForTeam(selTeam,league.drafted,teamId,state.rosterSize);
+    const costVal=parseFloat(costStr);
+    const valid=!isNaN(costVal)&&costVal>=MIN_BID&&costVal<=maxBid&&((costVal*2)%1===0);
+    if(drafted){
+      const mgr=league.teams.find(t=>t.id===player.draftedBy)?.name||('Team '+(player.draftedBy+1));
+      return e('span',{className:'drafted-chip'},`Drafted by ${mgr} for $${Number(player.cost||0).toFixed(2)}`);
+    }
     return e('div',{className:'d-flex align-items-center gap-2 flex-wrap'},
       e('select',{className:'form-select form-select-sm',style:{width:'160px'},value:teamId,onChange:e=>setTeamId(Number(e.target.value))},league.teams.map(t=>e('option',{key:t.id,value:t.id},t.name))),
       e('input',{type:'number',inputMode:'decimal',step:0.5,min:MIN_BID,placeholder:'$',value:costStr,onChange:e=>setCostStr(e.target.value),className:'form-control form-control-sm',style:{width:'90px'}}),
@@ -270,10 +292,13 @@ function App(){
   /* SoS helpers */
   function sosFor(p){ return state.sosMap?.[p.teamAbbr]?.[p.pos]; }
 
-  /* Player row (with SoS) */
+  /* Player row (with grey-out + SoS) */
   function PlayerRow({p}){
     const pr=p._pr; const band=rankBand(pr); const sos=sosFor(p); const sosStars=sos?.stars ?? null;
-    return e('tr',null,
+    const isDrafted = p.draftedBy!=null;
+    const mgrName = isDrafted ? (league.teams.find(t=>t.id===p.draftedBy)?.name||('Team '+(p.draftedBy+1))) : null;
+
+    return e('tr',{className: isDrafted ? 'row-drafted' : ''},
       e('td',null, e('div',null, pr?'#'+pr:'—', ' ', e('span',{className:`band ${band} ms-2`}, band.charAt(0).toUpperCase()+band.slice(1)))),
       e('td',null,
         e('div',{className:'d-flex align-items-center gap-2'},
@@ -282,15 +307,18 @@ function App(){
             e('div',{style:{fontWeight:800}}, p.name,' ', e('span',{className:'badge rounded-pill pos-badge ms-2'},p.pos)),
             e('div',{className:'small', style:{color:'#d4e7ef'}},
               p.teamAbbr, p.bye?` • Bye ${p.bye}`:'',
-              sosStars!=null ? e('span',{className:'ms-2 sos', title:(sos?.blurb||'')}, e('span',{className:'stars'},starsTxt(sosStars)), 'SoS') : null
+              sosStars!=null ? e('span',{className:'ms-2 sos', title:(sos?.blurb||'')}, e('span',{className:'stars'},starsTxt(sosStars)), 'SoS') : null,
+              isDrafted ? e('span',{className:'ms-2 drafted-chip'}, `Drafted by ${mgrName} • $${Number(p.cost||0).toFixed(2)}`) : null
             )
           )
         )
       ),
-      e('td',null, e('div',{className:'d-flex gap-2 flex-wrap'},
-        e('button',{className:'btn btn-sm btn-outline-contrast',onClick:()=>setState(s=>({...s, detail:p}))},'Details'),
-        e(QuickDraftRow,{player:p})
-      ))
+      e('td',null,
+        e('div',{className:'d-flex gap-2 flex-wrap'},
+          e('button',{className:'btn btn-sm btn-outline-contrast',disabled:isDrafted,onClick:()=>!isDrafted && setState(s=>({...s, detail:p}))},'Details'),
+          e(QuickDraftRow,{player:p})
+        )
+      )
     );
   }
 
@@ -332,7 +360,7 @@ function App(){
     );
   }
 
-  /* Collapsed summary for My Roster: counts by position & tier (H/M/L) */
+  /* Collapsed summary for My Roster (unchanged from v5.6) */
   function MyRosterCollapsedSummary({list}){
     const positions=['QB','RB','WR','TE','K','DEF'];
     const table = {};
@@ -340,7 +368,7 @@ function App(){
     list.forEach(p=>{
       if(!table[p.pos]) return;
       const pr=computePosRank(p,currentPlayers);
-      const band=rankBand(pr); // high/medium/low/other
+      const band=rankBand(pr);
       table[p.pos][band]=(table[p.pos][band]||0)+1;
       table[p.pos].total++;
     });
@@ -365,7 +393,7 @@ function App(){
       e('div',{className:'small',style:{color:'#c7d6de'}},
         'Note: players ranked >30 are counted as ',
         e('span',{className:'band other'}, 'Other'),
-        ' and excluded from H/M/L above. If you want an explicit “Other” column, I can add it.'
+        ' and excluded from H/M/L above.'
       )
     );
   }
@@ -374,8 +402,8 @@ function App(){
   function DraftView(){
     const me=league.teams[0]; const myMax=maxBidForTeam(me,league.drafted,0,state.rosterSize);
     const draftedSorted=[...league.drafted].sort((a,b)=> new Date(b.ts||0)-new Date(a.ts||0));
-    const draftedShown=state.draftedView==='last3'?draftedSorted.slice(0,3):state.draftedView==='last10'?draftedSorted.slice(0,10):draftedSorted;
 
+    const myRoster=league.drafted.filter(p=>p.draftedBy===0);
     const myByPos=myRoster.reduce((acc,p)=>{(acc[p.pos] ||= []).push(p); return acc;},{});
     const flexChip=`${needInfo.flexFilled} / ${needInfo.flexReq}`;
 
@@ -442,7 +470,7 @@ function App(){
           : (function(){
               const order=['QB','RB','WR','TE','K','DEF','BN']; const groups=[];
               order.forEach(pos=>{
-                const list=(myByPos[pos]||[]).slice().sort((a,b)=> (a.name>b.name?1:-1));
+                const list=(myRoster.filter(x=>x.pos===pos)).slice().sort((a,b)=> (a.name>b.name?1:-1));
                 if(list.length){
                   groups.push(
                     e('div',{key:pos,className:'mb-2'},
@@ -476,18 +504,22 @@ function App(){
 
         e('div',{className:'panel p-3 mt-3'},
           e('div',{className:'d-flex justify-content-between align-items-center mb-2'},
-            e('div',{className:'panel-title m-0'},'Drafted (', state.draftedView==='last3'?'Last 3':state.draftedView==='last10'?'Last 10':'All',')'),
+            e('div',{className:'panel-title m-0'},'Drafted',
+              !state.draftedCollapsed ? e('span',{className:'ms-2 small',style:{color:'#c7d6de'}},'(', state.draftedView==='last3'?'Last 3':state.draftedView==='last10'?'Last 10':'All',')') : null
+            ),
             e('div',{className:'d-inline-flex gap-2'},
-              e('button',{className:'btn-chip '+(state.draftedView==='last3'?'active':''),onClick:()=>setState(s=>({...s,draftedView:'last3'}))},'Last 3'),
-              e('button',{className:'btn-chip '+(state.draftedView==='last10'?'active':''),onClick:()=>setState(s=>({...s,draftedView:'last10'}))},'Last 10'),
-              e('button',{className:'btn-chip '+(state.draftedView==='all'?'active':''),onClick:()=>setState(s=>({...s,draftedView:'all'}))},'All')
+              e('button',{className:'btn-chip',onClick:()=>setState(s=>({...s,draftedView:'last3', draftedCollapsed:false}))},'Last 3'),
+              e('button',{className:'btn-chip',onClick:()=>setState(s=>({...s,draftedView:'last10', draftedCollapsed:false}))},'Last 10'),
+              e('button',{className:'btn-chip',onClick:()=>setState(s=>({...s,draftedView:'all', draftedCollapsed:false}))},'All'),
+              !state.draftedCollapsed ? e('button',{className:'btn-chip',onClick:()=>setState(s=>({...s,draftedCollapsed:true}))},'Collapse') : null
             )
           ),
-          (function(){
-            const sorted=[...league.drafted].sort((a,b)=> new Date(b.ts||0)-new Date(a.ts||0));
-            const shown=state.draftedView==='last3'?sorted.slice(0,3):state.draftedView==='last10'?sorted.slice(0,10):sorted;
-            return shown.length? e('ul',{className:'list-group'}, shown.map(p=>e(DraftListItem,{key:p.uid,entry:p}))) : e('div',{className:'text-muted'},'No picks yet');
-          })()
+          state.draftedCollapsed ? e('div',{className:'text-muted'},'Select Last 3 / Last 10 / All to expand')
+          : (function(){
+              const sorted=[...draftedSorted];
+              const shown=state.draftedView==='last3'?sorted.slice(0,3):state.draftedView==='last10'?sorted.slice(0,10):sorted;
+              return shown.length? e('ul',{className:'list-group'}, shown.map(p=>e(DraftListItem,{key:p.uid,entry:p}))) : e('div',{className:'text-muted'},'No picks yet');
+            })()
         )
       ),
 
@@ -522,7 +554,6 @@ function App(){
 
   function ManagersView(){
     const lg=state.leagues[state.scoring];
-
     function tierCountsForTeam(teamId){
       const counts={QB:{},RB:{},WR:{},TE:{}}; 
       for(const p of lg.drafted){
@@ -628,7 +659,6 @@ function App(){
             let leagueTop10=0;
             for(const p of lgHere.drafted){ if(['QB','RB','WR','TE'].includes(p.pos)){ const pr=computePosRank(p,currentPlayers); if(pr!=null && pr<=10) leagueTop10++; } }
             const pctTop10 = leagueTop10>0 ? ((myTop10Only/leagueTop10)*100).toFixed(1)+'%' : '—';
-            // Quick tier deltas (Top 5..16–20)
             const myCounts={}, othersCounts={};
             for(const p of lgHere.drafted){
               const pr=computePosRank(p,currentPlayers); const lab=tierForRank(pr);
