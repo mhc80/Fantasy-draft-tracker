@@ -1,1 +1,42 @@
-
+{
+  "meta": {
+    "generatedAt": "2025-08-16T12:00:00Z",
+    "note": "Static snapshot for your draft. App auto-loads this."
+  },
+  "injuries": [
+    {
+      "name": "Ashton Jeanty",
+      "status": "In-game check",
+      "summary": "Briefly visited the medical tent with an apparent arm issue; returned quickly to the sideline.",
+      "timetable": "Day-to-day",
+      "source": "FantasyPros injury news",
+      "updatedAt": "2025-08-16T20:33:00Z"
+    },
+    {
+      "name": "De'Von Achane",
+      "status": "Soft tissue injury",
+      "summary": "Dealing with a soft tissue lower-body injury, expected to miss multiple days to weeks.",
+      "timetable": "Days to weeks",
+      "source": "FantasyPros player news",
+      "updatedAt": "2025-08-16T17:34:00Z"
+    }
+    // You can add more injury entries here following the same format
+  ],
+  "tags": [
+    {
+      "name": "Post-hype Sleeper Example",
+      "tag": "sleeper",
+      "reason": "Low ADP but strong camp reports and cracks the targets role.",
+      "source": "FantasyPros sleepers roundup (Aug 2025)",
+      "updatedAt": "2025-08-16T12:00:00Z"
+    },
+    {
+      "name": "Risky Early-Round Example",
+      "tag": "bust",
+      "reason": "Overinflated ADP amid uncertain workload and regression risk.",
+      "source": "FantasyPros busts tool (Aug 2025)",
+      "updatedAt": "2025-08-16T12:00:00Z"
+    }
+    // Add more sleeper/bust tags here using the same structure
+  ]
+}
