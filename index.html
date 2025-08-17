@@ -1162,5 +1162,56 @@ ReactDOM.createRoot(document.getElementById('root')).render(e(function Shell(){
   return e(Router,{state});
 }));
 </script>
-</body>
+<script>
+/* --- Hotfix: ensure tab switching & initial render --- */
+(function(){
+  // Wait until the React shell has mounted and exposed setState
+  function ready(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
+
+  ready(function(){
+    // If Shell already provided a switchView, keep it; otherwise define it here.
+    if (typeof window.switchView !== 'function') {
+      // We'll locate the Shell's setState via the global shim that Shell sets.
+      // If it's not ready yet, try a few times.
+      let tries = 0;
+      const timer = setInterval(function(){
+        tries++;
+        if (typeof window.__SET === 'function') {
+          clearInterval(timer);
+
+          window.switchView = function(view){
+            // Update state
+            window.__SET(s => ({ ...s, view }));
+            // Update hash so Router's effect stays in sync
+            try { window.location.hash = view; } catch(_) {}
+            // Update header active tab visuals
+            ['tab-draft','tab-settings','tab-managers'].forEach(id=>{
+              const el = document.getElementById(id);
+              if(!el) return;
+              el.classList.remove('active');
+            });
+            const map = { draft:'tab-draft', settings:'tab-settings', managers:'tab-managers' };
+            const el = document.getElementById(map[view]);
+            if (el) el.classList.add('active');
+          };
+
+          // On first load: honor hash (#draft/#settings/#managers); default to 'draft'
+          const initial = (location.hash||'').replace('#','');
+          const firstView = (initial==='settings'||initial==='managers') ? initial : 'draft';
+          window.switchView(firstView);
+        } else if (tries > 40) {
+          clearInterval(timer);
+          // As a last resort, just set the hash to draft to nudge Router
+          try { if (!location.hash) location.hash = 'draft'; } catch(_){}
+        }
+      }, 100);
+    } else {
+      // If it already exists, still force an initial view based on hash (or draft)
+      const initial = (location.hash||'').replace('#','');
+      const firstView = (initial==='settings'||initial==='managers') ? initial : 'draft';
+      try { window.switchView(firstView); } catch(_){}
+    }
+  });
+})();
+</script></body>
 </html>
