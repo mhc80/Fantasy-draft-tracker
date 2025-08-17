@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Fantasy Auction Draft Tracker — Top-100 Expert Pack</title>
+<title>Fantasy Auction Draft Tracker — Insights+</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <!-- React 18 (UMD) -->
@@ -93,6 +93,12 @@ body{
 .ac-item .meta { color:#c7d6de; font-size:.9rem }
 .ac-item.active, .ac-item:hover { background:#12343e; }
 
+/* Insight icons */
+.icon { display:inline-flex; align-items:center; gap:.25rem; padding:.15rem .45rem; border-radius:999px; font-weight:700; border:1px solid transparent; font-size:.85rem }
+.icon-injury{ background:#2a0f12; border-color:#a4434c; color:#ffd3d6 }
+.icon-sleeper{ background:#0f1b2a; border-color:#4462a4; color:#cfe1ff }
+.icon-bust{ background:#2a1f0f; border-color:#a47d44; color:#ffe8c7 }
+
 @media (orientation: portrait){ .stack-portrait{ display:flex; flex-direction:column; gap:1rem } .sticky{ position:static } }
 @media (orientation: landscape) and (max-height: 520px){ .table-responsive{ max-height:50vh !important } }
 </style>
@@ -117,16 +123,22 @@ body{
 
 <main class="container" id="root"></main><script>
 const e=React.createElement; const {useState,useEffect,useMemo}=React;
-const STORAGE_KEY='auction_tracker_dual_league_dashboard_v7_top100';
+
+/* CONFIG */
+const STORAGE_KEY='auction_tracker_dual_league_dashboard_v8_insights';
 const MIN_BID=0.5;
 
-/* Logos */
+/* Logos + teams */
 const LOGO_CODE={ARI:'ari',ATL:'atl',BAL:'bal',BUF:'buf',CAR:'car',CHI:'chi',CIN:'cin',CLE:'cle',DAL:'dal',DEN:'den',DET:'det',GBP:'gb',HOU:'hou',IND:'ind',JAX:'jax',KC:'kc',LV:'lv',LAC:'lac',LAR:'lar',MIA:'mia',MIN:'min',NE:'ne',NO:'no',NYG:'nyg',NYJ:'nyj',PHI:'phi',PIT:'pit',SF:'sf',SEA:'sea',TB:'tb',TEN:'ten',WAS:'wsh'};
 const TEAMS=[{abbr:'ARI',name:'Arizona Cardinals'},{abbr:'ATL',name:'Atlanta Falcons'},{abbr:'BAL',name:'Baltimore Ravens'},{abbr:'BUF',name:'Buffalo Bills'},{abbr:'CAR',name:'Carolina Panthers'},{abbr:'CHI',name:'Chicago Bears'},{abbr:'CIN',name:'Cincinnati Bengals'},{abbr:'CLE',name:'Cleveland Browns'},{abbr:'DAL',name:'Dallas Cowboys'},{abbr:'DEN',name:'Denver Broncos'},{abbr:'DET',name:'Detroit Lions'},{abbr:'GBP',name:'Green Bay Packers'},{abbr:'HOU',name:'Houston Texans'},{abbr:'IND',name:'Indianapolis Colts'},{abbr:'JAX',name:'Jacksonville Jaguars'},{abbr:'KC',name:'Kansas City Chiefs'},{abbr:'LV',name:'Las Vegas Raiders'},{abbr:'LAC',name:'Los Angeles Chargers'},{abbr:'LAR',name:'Los Angeles Rams'},{abbr:'MIA',name:'Miami Dolphins'},{abbr:'MIN',name:'Minnesota Vikings'},{abbr:'NE',name:'New England Patriots'},{abbr:'NO',name:'New Orleans Saints'},{abbr:'NYG',name:'New York Giants'},{abbr:'NYJ',name:'New York Jets'},{abbr:'PHI',name:'Philadelphia Eagles'},{abbr:'PIT',name:'Pittsburgh Steelers'},{abbr:'SF',name:'San Francisco 49ers'},{abbr:'SEA',name:'Seattle Seahawks'},{abbr:'TB',name:'Tampa Bay Buccaneers'},{abbr:'TEN',name:'Tennessee Titans'},{abbr:'WAS',name:'Washington Commanders'}];
 function TeamLogo({abbr,big}){const code=LOGO_CODE[abbr]||abbr?.toLowerCase?.()||''; const url=`https://a.espncdn.com/i/teamlogos/nfl/500/${code}.png`; return e('img',{className:big?'logo-lg':'logo',alt:abbr+' logo',src:url,onError:(ev)=>{ev.currentTarget.style.display='none';}});}
 
 /* Storage */
-function useStoredState(initial){const [state,setState]=useState(()=>{const raw=localStorage.getItem(STORAGE_KEY);if(!raw)return initial;try{return JSON.parse(raw)}catch(_){return initial}});useEffect(()=>localStorage.setItem(STORAGE_KEY,JSON.stringify(state)),[state]);return [state,setState];}
+function useStoredState(initial){
+  const [state,setState]=useState(()=>{const raw=localStorage.getItem(STORAGE_KEY); if(!raw) return initial; try{return {...initial, ...JSON.parse(raw)};}catch(_){return initial;}});
+  useEffect(()=>localStorage.setItem(STORAGE_KEY,JSON.stringify(state)),[state]);
+  return [state,setState];
+}
 function initialLeagueTeams(names){return Array.from({length:10},(_,i)=>({id:i,name:names?.[i]||(i===0?'My Team':('Team '+(i+1))),spent:0,budget:200}));}
 function initialState(){
   const names=Array.from({length:10},(_,i)=> i===0?'My Team':'Team '+(i+1));
@@ -138,7 +150,7 @@ function initialState(){
     targets:{QB:1,RB:2,WR:2,TE:1,FLEX:1,K:1,DEF:1,BN:8},
     participantNames:names,
     sosMap:{},
-    expertNotes: PRESEEDED_EXPERT_NOTES,  // packaged notes, see below
+    expertNotes: PRESEEDED_EXPERT_NOTES,
     leagues:{
       PPR:{teams:initialLeagueTeams(names), drafted:[]},
       STD:{teams:initialLeagueTeams(names.map((n,i)=>i===0?'My Team (Std)':n)), drafted:[]}
@@ -146,11 +158,14 @@ function initialState(){
     detail:null, editDraft:null,
     draftedView:'last3',
     draftedCollapsed:true,
-    myRosterCollapsed:false
+    myRosterCollapsed:false,
+    config:{},
+
+    injuriesByPlayer:{}, tagsByPlayer:{}, insightsUpdatedAt:null
   };
 }
 
-/* CSV parsing */
+/* CSV & SOS parsers */
 function normalizePos(pos){if(!pos)return'N/A'; const p=String(pos).toUpperCase().trim(); return p.replace(/[0-9]+$/,'').replace('DST','DEF');}
 function parseFPRowFlexible(r,idx){
   const obj={};for(const k in r) obj[(k||'').trim()]=r[k];
@@ -167,8 +182,6 @@ function parseFPRowFlexible(r,idx){
   let abbr=team; if(abbr==='GB')abbr='GBP'; if(abbr==='JAC')abbr='JAX'; if(abbr==='LVR')abbr='LV'; if(abbr==='LA')abbr='LAR'; if(abbr==='WSH')abbr='WAS';
   return {id:idx,name,teamAbbr:abbr,pos,rank:rk,bye,sos,ecrVsAdp,avgDiff,pctOver,draftedBy:null,cost:null};
 }
-
-/* SoS CSV */
 function parseStarsFromBlurb(txt){const m=String(txt||'').match(/(\d)\s*star/i); return m?parseInt(m[1],10):null;}
 function parseSOSCsv(rows){
   const map={};
@@ -186,7 +199,7 @@ function parseSOSCsv(rows){
   return map;
 }
 
-/* Utils */
+/* helpers */
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8);}
 function download(filename,text){const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type:'text/csv'})); a.download=filename; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500);}
 function countsByPosForTeam(drafted,teamId){const c={QB:0,RB:0,WR:0,TE:0,K:0,DEF:0}; for(const d of drafted) if(d.draftedBy===teamId){ if(c[d.pos]!=null) c[d.pos]+=1; } return c;}
@@ -208,8 +221,6 @@ function starsTxt(n){const x=Math.max(0,Math.min(5,n||0)); return '★'.repeat(x
 const TIERS=[{label:'Top 5',min:1,max:5},{label:'6–10',min:6,max:10},{label:'11–15',min:11,max:15},{label:'16–20',min:16,max:20},{label:'21–30',min:21,max:30},{label:'31–40',min:31,max:40},{label:'41+',min:41,max:Infinity}];
 const TIER_LABELS = TIERS.map(t=>t.label);
 function tierForRank(r){ if(r==null) return '41+'; for(const t of TIERS){ if(r>=t.min && r<=t.max) return t.label; } return '41+'; }
-
-/* FLEX fill math */
 function computeFlexUsage(have,targets){
   const baseRB=targets.RB||0, baseWR=targets.WR||0, baseTE=targets.TE||0, flexReq=targets.FLEX||0;
   const surplusRB=Math.max((have.RB||0)-baseRB,0);
@@ -221,113 +232,121 @@ function computeFlexUsage(have,targets){
   return {flexFilled,flexRemaining};
 }
 
-/* ------------------ PACKAGED EXPERT NOTES (top names) ------------------ */
-/* These are concise, paraphrased consensus blurbs distilled from FantasyPros
-   outlooks/ECR as of mid-Aug 2025. For the rest of your top-100, the app will
-   auto-generate expert-style summaries from your FantasyPros CSV + SoS. 
-   Sources: FantasyPros Consensus/ECR & outlook pages. */
+/* optional named notes; generator covers all players */
 const PRESEEDED_EXPERT_NOTES = {
-  "Ja'Marr Chase": "Elite volume + efficiency with Burrow; clear WR1 overall path; weekly ceiling games expected.",
-  "Justin Jefferson": "Perennial top-5 in PPG; massive target share sustains elite floor even with QB transitions.",
-  "CeeDee Lamb": "Alpha usage in high-volume pass attack; WR1 overall outcome firmly in range.",
-  "Tyreek Hill": "Unique explosiveness + deep targets; weekly league-winning spike weeks remain.",
-  "Amon-Ra St. Brown": "High target share + red-zone usage; ultra-stable PPR WR1 with top-5 upside.",
-  "A.J. Brown": "Target concentration + YAC/TD upside keep him a steady WR1 with weekly eruptions.",
-  "Puka Nacua": "Scheme fit + heavy volume; strong PPR floor with ascending ceiling.",
-  "Garrett Wilson": "Target magnet; QB stability unlocks WR1 season if TD variance swings his way.",
-  "Nico Collins": "Efficient alpha tied to ascending QB; top-10 WR case with sustained volume.",
-  "Brandon Aiyuk": "Route winning + efficiency; WR1/2 border with big-play equity.",
-  "Drake London": "Role consolidation + red-zone growth; breakout WR1/2 profile.",
-  "Jaylen Waddle": "Explosive efficiency; WR1 spikes with WR2 floor in elite offense.",
-  "DeVonta Smith": "Polished separator; WR2 with WR1 weeks in high-scoring environment.",
-  "DK Metcalf": "Elite size/speed + end-zone role; WR2 with top-10 ceiling on TD runs.",
-  "Mike Evans": "Perennial TD threat; age curve moderated by dominant contested-catch skills.",
-  "Chris Olave": "Air-yards + separation; WR1/2 blend hinging on QB consistency.",
-  "Tee Higgins": "Boundary alpha tools; WR2 who can surge if volume consolidates.",
-  "Malik Nabers": "Immediate alpha traits; top-10 ceiling on volume alone.",
-  "Bijan Robinson": "Three-down talent with receiving role; RB1 overall outcome in play.",
-  "Jahmyr Gibbs": "Explosive dual-threat in strong offense; RB1 with weekly top-3 spikes.",
-  "Breece Hall": "Home-run speed + target share; RB1 with league-winning stretch potential.",
-  "Christian McCaffrey": "Still elite usage/efficiency; RB1 if workload remains robust.",
-  "Saquon Barkley": "Every-down role with goal-line work; RB1/2 range with upside.",
-  "Jonathan Taylor": "Workhorse when healthy; TD equity fuels RB1 weeks.",
-  "Travis Etienne": "Explosive space back + targets; RB1/2 with spike-week profile.",
-  "Josh Jacobs": "Volume secure; RB2 floor with RB1 upside if efficiency rebounds.",
-  "Derrick Henry": "TD-driven RB2 with vintage RB1 games if workload holds.",
-  "Kyren Williams": "High snap share + receiving; RB1/2 anchored by role.",
-  "De'Von Achane": "Hyper-efficiency weapon; RB2/1 on limited but lethal touches.",
-  "Rachaad White": "Three-down volume; RB2 floor, receiving props buoy value.",
-  "Patrick Mahomes": "Elite QB1; weekly top-3 ceiling anchored by TD volume.",
-  "Josh Allen": "Konami code + red-zone rushing keep him in overall QB1 mix.",
-  "Jalen Hurts": "Dual-threat TD machine; top-3 QB with short-yardage scores.",
-  "Lamar Jackson": "Rushing base + improved weapons; QB1 outcome every year.",
-  "Joe Burrow": "High-efficiency pocket passer; QB1 if volume/health cooperate.",
-  "C.J. Stroud": "Rapid ascension with elite efficiency; QB1 path via TD growth.",
-  "Anthony Richardson": "Monster rushing ceiling; QB1 on health/accuracy gains.",
-  "Tua Tagovailoa": "Top-10 passer when volume high; QB1/2 based on TD variance.",
-  "Trevor Lawrence": "Talented distributor; QB1 weeks tied to red-zone efficiency.",
-  "Sam LaPorta": "Featured TE with red-zone role; top-3 TE case.",
-  "Travis Kelce": "All-time great; TE1/2 range if targets remain elite.",
-  "Mark Andrews": "Target hog in strong offense; top-3 TE per-game when healthy.",
-  "Trey McBride": "Emerging alpha TE; heavy target share fuels TE1 breakout.",
-  "George Kittle": "Efficiency + big plays; TE1 outcomes with volatility.",
-  "Evan Engram": "High reception floor; TE1 in PPR on volume.",
-  "Dalton Kincaid": "Slot-leaning role; year-two leap into TE1 territory.",
-  "David Njoku": "Athletic mismatch; TE1 if target share sticks.",
-  "Kyle Pitts": "Flashes elite traits; TE1 upside if usage cooperates.",
-  /* You can add more names freely; generator covers everyone else */
+  "Ja'Marr Chase":"Elite volume + efficiency with Burrow; clear WR1 overall path.",
+  "Justin Jefferson":"Perennial top-5 PPG; massive share sustains elite floor.",
+  "CeeDee Lamb":"Alpha usage; WR1 overall outcome in range.",
+  "Tyreek Hill":"Explosive deep role; weekly league-winning spikes.",
+  "Amon-Ra St. Brown":"Target share + RZ usage; ultra-stable PPR WR1.",
+  "A.J. Brown":"YAC + end-zone role; steady WR1 with eruptions.",
+  "Puka Nacua":"Scheme fit + heavy volume; ascending ceiling.",
+  "Garrett Wilson":"Target magnet; QB stability unlocks WR1 season.",
+  "Nico Collins":"Efficient alpha; top-10 case with sustained volume.",
+  "Bijan Robinson":"Three-down talent with receiving role; RB1 overall path.",
+  "Jahmyr Gibbs":"Explosive dual-threat; RB1 with top-3 spikes.",
+  "Breece Hall":"Home-run speed + targets; league-winning outcome.",
+  "Christian McCaffrey":"Still elite usage/efficiency; RB1 on role.",
+  "Saquon Barkley":"Every-down role + GL work; RB1/2 with upside.",
+  "Jonathan Taylor":"Workhorse when healthy; TD equity boosts ceiling.",
+  "Travis Etienne":"Explosive space back; RB1/2 with spike weeks.",
+  "Patrick Mahomes":"Elite QB1; weekly top-3 ceiling.",
+  "Josh Allen":"Rushing TDs keep overall QB1 in play.",
+  "Jalen Hurts":"Dual-threat TD machine; top-3 QB.",
+  "Lamar Jackson":"Rushing base + weapons; QB1 outcome yearly.",
+  "Sam LaPorta":"Featured TE with RZ role; top-3 TE.",
+  "Travis Kelce":"All-time great; TE1/2 if targets stay elite.",
+  "Mark Andrews":"Target hog; per-game top-3 TE when healthy.",
+  "Trey McBride":"Emerging alpha TE; heavy share fuels breakout.",
+  "George Kittle":"Efficiency + chunk plays; volatile TE1."
 };
 
-/* ---------- Data-driven Expert Summary for ALL players (top-100+) ---------- */
+/* data-driven outlook (covers 300+) */
 function buildExpertOutlook(p, allPlayers, sosMap){
-  // 1) Position rank bucket
   const pr = computePosRank(p, allPlayers);
-  const band = rankBand(pr); // high (≤10), medium (11–20), low (21–30), other (>30)
+  const band = rankBand(pr);
   const bandText = band==='high'?'top-10 at position':band==='medium'?'ranked 11–20 at position':band==='low'?'ranked 21–30 at position':'outside top-30 at position';
-
-  // 2) ECR vs ADP signal
-  const deltaRaw = (p.ecrVsAdp||'').trim(); // e.g. "+4.1", "-1"
-  const deltaNum = parseFloat(deltaRaw.replace(/[+]/g,''));
-  let deltaText='';
-  if(!isNaN(deltaNum)){
-    if(deltaNum>0.5) deltaText='likely undervalued vs ADP (experts higher).';
-    else if(deltaNum<-0.5) deltaText='potentially overvalued vs ADP (room higher).';
-    else deltaText='fairly aligned with ADP.';
-  }
-
-  // 3) Strength of Schedule
+  const deltaRaw = (p.ecrVsAdp||'').trim(); const deltaNum = parseFloat(deltaRaw.replace(/[+]/g,''));
+  let deltaText=''; if(!isNaN(deltaNum)){ if(deltaNum>0.5) deltaText='likely undervalued vs ADP (experts higher).'; else if(deltaNum<-0.5) deltaText='potentially overvalued vs ADP.'; else deltaText='aligned with ADP.'; }
   const sos = (sosMap?.[p.teamAbbr]?.[p.pos]) || null;
-  let sosText='';
-  if(sos && typeof sos.stars==='number'){
-    if(sos.stars>=4) sosText='Favorable schedule (SoS '+sos.stars+'★).';
-    else if(sos.stars<=2) sosText='Tougher schedule (SoS '+sos.stars+'★).';
-    else sosText='Neutral schedule (SoS '+sos.stars+'★).';
-  }
+  let sosText=''; if(sos && typeof sos.stars==='number'){ sosText = sos.stars>=4?`Favorable schedule (SoS ${sos.stars}★).`: (sos.stars<=2?`Tough schedule (SoS ${sos.stars}★).`:`Neutral schedule (SoS ${sos.stars}★).`); }
+  const roleHint = (p.pos==='RB')?'three-down/receiving usage drives ceiling':(p.pos==='WR')?'target share + red-zone usage drive ceiling':(p.pos==='TE')?'routes + red-zone targets are key':(p.pos==='QB')?'TD rate + rushing add-ons drive ceiling':'role/efficiency dependent';
+  return [`Consensus view: ${bandText}.`, deltaText, sosText, `Context: ${roleHint}.`].filter(Boolean).join(' ');
+}
 
-  // 4) Role hint from position
-  const roleHint = (p.pos==='RB')?'three-down/receiving usage drives ceiling':
-                   (p.pos==='WR')?'target share + red-zone usage drive ceiling':
-                   (p.pos==='TE')?'route participation + red-zone targets are key':
-                   (p.pos==='QB')?'TD rate + rushing add-ons drive weekly ceiling':
-                   'role/efficiency dependent';
+/* recommender */
+function recommendPlayer(p, state, currentPlayers){
+  const pr=computePosRank(p,currentPlayers); const band=rankBand(pr);
+  let score=0; const reasons=[];
+  if(band==='high'){score+=2; reasons.push('Top-10 at position');}
+  else if(band==='medium'){score+=1; reasons.push('Rank 11–20 at position');}
+  else if(band==='other'){score-=1; reasons.push('Outside top-30 at position');}
 
-  // Compose
-  const parts = [];
-  parts.push(`Consensus view: ${bandText}.`);
-  if(deltaText) parts.push(deltaText);
-  if(sosText) parts.push(sosText);
-  parts.push(`Context: ${roleHint}.`);
-  return parts.join(' ');
+  const delta=parseFloat((p.ecrVsAdp||'').replace(/[+]/g,'')); 
+  if(!isNaN(delta)){ if(delta>0.5){score+=1; reasons.push('Experts higher than ADP');} else if(delta<-0.5){score-=1; reasons.push('Experts lower than ADP');} }
+
+  const sos=state.sosMap?.[p.teamAbbr]?.[p.pos]; 
+  if(sos && typeof sos.stars==='number'){ if(sos.stars>=4){score+=1; reasons.push(`Favorable SoS (${sos.stars}★)`);} else if(sos.stars<=2){score-=1; reasons.push(`Tough SoS (${sos.stars}★)`);} }
+
+  const inj=state.injuriesByPlayer?.[p.name]; 
+  if(inj){ if(/out|weeks|ir|torn|fracture|surgery/i.test(inj.summary||'')||/week|weeks/i.test(inj.timetable||'')){ score-=2; reasons.push('Injury risk/timetable flagged'); } else { score-=1; reasons.push('Recent injury note'); } }
+
+  const tag=state.tagsByPlayer?.[p.name];
+  if(tag?.tag==='sleeper'){ score+=1; reasons.push('Sleeper tag (value)'); }
+  if(tag?.tag==='bust'){ score-=1; reasons.push('Bust tag (risk)'); }
+
+  const lg=state.leagues[state.scoring]; const have=countsByPosForTeam(lg.drafted,0); const need=((state.targets[p.pos]||0) - (have[p.pos]||0))>0;
+  if(need){ score+=1; reasons.push('Fills a current roster need'); }
+
+  const verdict = score>=2 ? 'DRAFT' : (score>=0 ? 'CONSIDER' : 'PASS');
+  return {verdict, score, reasons};
 }
 </script><script>
+/* --- Local insights loader (no cloud) --- */
+async function loadLocalInsights(setState){
+  try{
+    const res = await fetch('./insights.json', {cache:'no-store'});
+    if(!res.ok) return;
+    const data = await res.json();
+    const injMap = {};
+    for(const x of (data.injuries||[])){
+      if(!x.name) continue;
+      injMap[x.name] = {
+        status: x.status||'',
+        summary: x.summary||'',
+        timetable: x.timetable||'',
+        source: x.source||'',
+        updatedAt: x.updatedAt||new Date().toISOString()
+      };
+    }
+    const tagMap = {};
+    for(const x of (data.tags||[])){
+      if(!x.name || !x.tag) continue;
+      tagMap[x.name] = {
+        tag: x.tag, reason: x.reason||'',
+        source: x.source||'',
+        updatedAt: x.updatedAt||new Date().toISOString()
+      };
+    }
+    setState(s=>({...s,
+      injuriesByPlayer: injMap,
+      tagsByPlayer: tagMap,
+      insightsUpdatedAt: new Date().toISOString()
+    }));
+  }catch(_){}
+}
+
+/* App */
 function App(){
   const [state,setState]=useStoredState(initialState());
   useEffect(()=>{window.switchView=(v)=>{setState(s=>({...s,view:v})); ['tab-draft','tab-settings','tab-managers'].forEach(id=>{const el=document.getElementById(id); if(el) el.classList.remove('active');}); const map={draft:'tab-draft',settings:'tab-settings',managers:'tab-managers'}; const el=document.getElementById(map[v]); if(el) el.classList.add('active');}},[]);
+  /* Load local snapshot once */
+  useEffect(()=>{ loadLocalInsights(setState); },[]);
 
   const league=state.leagues[state.scoring];
   const currentPlayers=state.scoring==='PPR'?state.playersPPR:state.playersSTD;
 
-  /* Available list (keeps drafted at bottom & greyed) */
+  /* Derived roster list */
   const roster=useMemo(()=>{
     const list=currentPlayers.filter(p=>(!state.selectedTeam || p.teamAbbr===state.selectedTeam));
     const byPos=list.filter(p=>state.pos==='ALL'||p.pos===state.pos);
@@ -340,8 +359,6 @@ function App(){
       return (a._pr||9999)-(b._pr||9999);
     });
   },[currentPlayers,state.selectedTeam,state.pos,state.q]);
-
-  const myRoster=useMemo(()=>league.drafted.filter(p=>p.draftedBy===0),[league.drafted]);
 
   const needInfo=useMemo(()=>{
     const have=countsByPosForTeam(league.drafted,0); const t=state.targets;
@@ -432,20 +449,16 @@ function App(){
     download(`draft_results_${state.scoring}.csv`,csv);
   }
 
-  function sosFor(p){ return state.sosMap?.[p.teamAbbr]?.[p.pos]; }
-
-  /* -------- Intellisense Search (iPad/Safari-safe) -------- */
+  /* Search with autocomplete (fixed cursor & multi-letters) */
   function AutoCompleteSearch({value,onChange,players}){
     const [open,setOpen]=useState(false);
     const [hi,setHi]=useState(0);
     const [text,setText]=useState(value||'');
     const inputRef = React.useRef(null);
-
     useEffect(()=>{ setText(value||''); },[value]);
 
     function normalize(s){ return String(s||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); }
     const normQ = normalize(text);
-
     const suggestions = useMemo(()=>{
       if(!normQ) return [];
       const seen=new Set(); const out=[];
@@ -488,7 +501,7 @@ function App(){
     );
   }
 
-  /* Quick Draft on table rows */
+  /* Quick Draft row */
   function QuickDraftRow({player}){
     const drafted = player.draftedBy!=null;
     const [teamId,setTeamId]=useState(0);
@@ -499,15 +512,28 @@ function App(){
     const valid=!isNaN(costVal)&&costVal>=MIN_BID&&costVal<=maxBid&&((costVal*2)%1===0);
     if(drafted){
       const mgr=league.teams.find(t=>t.id===player.draftedBy)?.name||('Team '+(player.draftedBy+1));
-      return e('span',{className:'drafted-chip'},`Drafted by ${mgr} for $${Number(player.cost||0).toFixed(2)}`);
+      return e('span',{className:'drafted-chip'},`Drafted by ${mgr} • $${Number(player.cost||0).toFixed(2)}`);
     }
     return e('div',{className:'d-flex align-items-center gap-2 flex-wrap'},
       e('select',{className:'form-select form-select-sm',style:{width:'160px'},value:teamId,onChange:e=>setTeamId(Number(e.target.value))},league.teams.map(t=>e('option',{key:t.id,value:t.id},t.name))),
       e('input',{type:'number',inputMode:'decimal',step:0.5,min:MIN_BID,placeholder:'$',value:costStr,onChange:e=>setCostStr(e.target.value),className:'form-control form-control-sm',style:{width:'90px'}}),
       e('button',{className:'btn btn-sm btn-primary',disabled:!valid,onClick:()=>{if(valid){draftPlayer(player,teamId,parseFloat(costStr)); setCostStr('');}}}, valid? 'Draft' : `Max $${maxBid.toFixed(2)}`)
     );
-  }  function PlayerRow({p}){
-    const pr=p._pr; const band=rankBand(pr); const sos=sosFor(p); const sosStars=sos?.stars ?? null;
+  }<script>
+  function InsightIcons({player}, stateRef){
+    const inj = stateRef?.injuriesByPlayer?.[player.name];
+    const tag = stateRef?.tagsByPlayer?.[player.name];
+    return e('span',{className:'d-inline-flex gap-1 align-items-center'},
+      inj ? e('span',{className:'icon icon-injury',title:(inj.status?inj.status+': ':'')+(inj.summary||'Injury note')},'✚') : null,
+      tag?.tag==='sleeper' ? e('span',{className:'icon icon-sleeper',title:tag.reason||'Sleeper'},'☾') : null,
+      tag?.tag==='bust' ? e('span',{className:'icon icon-bust',title:tag.reason||'Bust'},'⚠') : null
+    );
+  }
+
+  function PlayerRow({p,state}){
+    const league=state.leagues[state.scoring];
+    const currentPlayers=state.scoring==='PPR'?state.playersPPR:state.playersSTD;
+    const pr=p._pr; const band=rankBand(pr); const sos=state.sosMap?.[p.teamAbbr]?.[p.pos];
     const isDrafted = p.draftedBy!=null;
     const mgrName = isDrafted ? (league.teams.find(t=>t.id===p.draftedBy)?.name||('Team '+(p.draftedBy+1))) : null;
 
@@ -520,22 +546,22 @@ function App(){
             e('div',{style:{fontWeight:800}}, p.name,' ', e('span',{className:'badge rounded-pill pos-badge ms-2'},p.pos)),
             e('div',{className:'small', style:{color:'#d4e7ef'}},
               p.teamAbbr, p.bye?` • Bye ${p.bye}`:'',
-              sosStars!=null ? e('span',{className:'ms-2 sos', title:(sos?.blurb||'')}, e('span',{className:'stars'},starsTxt(sosStars)), 'SoS') : null,
+              sos && typeof sos.stars==='number' ? e('span',{className:'ms-2 sos', title:(sos?.blurb||'')}, e('span',{className:'stars'},starsTxt(sos.stars)), 'SoS') : null,
               isDrafted ? e('span',{className:'ms-2 drafted-chip'}, `Drafted by ${mgrName} • $${Number(p.cost||0).toFixed(2)}`) : null
             )
           )
         )
       ),
       e('td',null,
-        e('div',{className:'d-flex gap-2 flex-wrap'},
-          e('button',{className:'btn btn-sm btn-outline-contrast',disabled:isDrafted,onClick:()=>!isDrafted && setState(s=>({...s, detail:p}))},'Details'),
+        e('div',{className:'d-flex gap-2 flex-wrap align-items-center'},
+          e(InsightIcons,{player:p}, state),
+          e('button',{className:'btn btn-sm btn-outline-contrast',disabled:isDrafted,onClick:()=>!isDrafted && window.__setState(s=>({...s, detail:p}))},'Details'),
           e(QuickDraftRow,{player:p})
         ))
     );
   }
 
-  /* Collapsed Roster Summary */
-  function MyRosterCollapsedSummary({list}){
+  function MyRosterCollapsedSummary({list,currentPlayers}){
     const positions=['QB','RB','WR','TE','K','DEF'];
     const table = {};
     positions.forEach(p=> table[p]={high:0,medium:0,low:0,other:0,total:0});
@@ -572,11 +598,26 @@ function App(){
     );
   }
 
-  function DraftView(){
+  function DraftView(state){
+    const league=state.leagues[state.scoring];
     const me=league.teams[0]; const myMax=maxBidForTeam(me,league.drafted,0,state.rosterSize);
+    const currentPlayers=state.scoring==='PPR'?state.playersPPR:state.playersSTD;
     const draftedSorted=[...league.drafted].sort((a,b)=> new Date(b.ts||0)-new Date(a.ts||0));
-    const myByPos=league.drafted.filter(p=>p.draftedBy===0).reduce((acc,p)=>{(acc[p.pos] ||= []).push(p); return acc;},{});
-    const flexChip=`${needInfo.flexFilled} / ${needInfo.flexReq}`;
+    const flexInfo=(function(){const have=countsByPosForTeam(league.drafted,0); const t=state.targets; const {flexFilled,flexRemaining}=computeFlexUsage(have,t); return {flexFilled,flexRemaining,req:t.FLEX||0};})();
+
+    /* Build roster table */
+    const roster=useMemo(()=>{
+      const list=currentPlayers.filter(p=>(!state.selectedTeam || p.teamAbbr===state.selectedTeam));
+      const byPos=list.filter(p=>state.pos==='ALL'||p.pos===state.pos);
+      const withPR=byPos.map(p=>({...p,_pr:computePosRank(p,currentPlayers)}));
+      const q=state.q.trim().toLowerCase();
+      const filtered=!q?withPR:withPR.filter(p=>p.name.toLowerCase().includes(q)||p.pos.toLowerCase().includes(q)||p.teamAbbr.toLowerCase().includes(q));
+      return filtered.sort((a,b)=>{
+        const ad=!!a.draftedBy, bd=!!b.draftedBy;
+        if(ad!==bd) return ad?1:-1;
+        return (a._pr||9999)-(b._pr||9999);
+      });
+    },[currentPlayers,state.selectedTeam,state.pos,state.q]);
 
     return e('div',{className:'row g-3 stack-portrait'},
       e('div',{className:'col-12'},
@@ -584,9 +625,10 @@ function App(){
           e('div',{className:'metric flex-fill'},
             e('div',{className:'label'},'Active League'),
             e('div',{className:'value'}, state.scoring==='PPR'?'PPR':'Standard'),
-            e('div',{className:'mt-2 d-inline-flex gap-2'},
-              e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'PPR'}))},'PPR'),
-              e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'STD'}))},'Standard')
+            e('div',{className:'mt-2 d-inline-flex gap-2 flex-wrap'},
+              e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>window.__setState(s=>({...s,scoring:'PPR'}))},'PPR'),
+              e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>window.__setState(s=>({...s,scoring:'STD'}))},'Standard'),
+              e('button',{className:'btn btn-outline-contrast',onClick:()=>window.switchView('settings')},'Open Settings')
             ),
             e('div',{className:'mt-2',style:{color:'#c7d6de'}},
               'Teams chosen: ', (new Set(league.drafted.map(p=>p.teamAbbr))).size,
@@ -595,8 +637,8 @@ function App(){
           ),
           e('div',{className:'metric'}, e('div',{className:'label'},'My Budget Left'), e('div',{className:'value'},'$'+Number(200-(me.spent||0)).toFixed(2))),
           e('div',{className:'metric'}, e('div',{className:'label'},'My Max Bid'), e('div',{className:'value'},'$'+myMax.toFixed(2))),
-          e('div',{className:'metric'}, e('div',{className:'label'},'FLEX Filled'), e('div',{className:'value'},flexChip),
-            needInfo.need.FLEX>0 ? e('div',{className:'small text-warning mt-1'}, needInfo.need.FLEX,' FLEX still needed') : e('div',{className:'small text-success mt-1'},'FLEX complete')
+          e('div',{className:'metric'}, e('div',{className:'label'},'FLEX Filled'), e('div',{className:'value'},`${flexInfo.flexFilled} / ${flexInfo.req}`),
+            flexInfo.flexRemaining>0 ? e('div',{className:'small text-warning mt-1'}, flexInfo.flexRemaining,' FLEX still needed') : e('div',{className:'small text-success mt-1'},'FLEX complete')
           )
         )
       ),
@@ -607,7 +649,7 @@ function App(){
           e('div',{className:'panel-title mb-2'},'Filters'),
           e('div',{className:'mb-3'},
             e('label',{className:'form-label'},'Team Drawn From Hat'),
-            e('select',{className:'form-select',value:state.selectedTeam,onChange:ev=>setState(s=>({...s,selectedTeam:ev.target.value}))},
+            e('select',{className:'form-select',value:state.selectedTeam,onChange:ev=>window.__setState(s=>({...s,selectedTeam:ev.target.value}))},
               [e('option',{key:'',value:''},'All Teams')].concat(TEAMS.map(t=>e('option',{key:t.abbr,value:t.abbr},`${t.abbr} — ${t.name}`)))
             )
           ),
@@ -616,14 +658,14 @@ function App(){
             e('ul',{className:'nav nav-pills flex-wrap gap-1'},
               ['ALL','QB','RB','WR','TE','K','DEF'].map(pos =>
                 e('li',{className:'nav-item',key:pos},
-                  e('button',{className:'nav-link '+(state.pos===pos?'active':''),onClick:()=>setState(s=>({...s,pos}))},pos)
+                  e('button',{className:'nav-link '+(state.pos===pos?'active':''),onClick:()=>window.__setState(s=>({...s,pos}))},pos)
                 )
               )
             )
           ),
           e('div',{className:'mb-2'}, e(AutoCompleteSearch,{
             value:state.q,
-            onChange:(v)=>setState(s=>({...s,q:v})),
+            onChange:(v)=>window.__setState(s=>({...s,q:v})),
             players:currentPlayers
           }))
         )
@@ -634,22 +676,21 @@ function App(){
         e('div',{className:'panel p-3'},
           e('div',{className:'d-flex justify-content-between align-items-center mb-2'},
             e('div',{className:'panel-title m-0'},'My Roster ('+state.scoring+')'),
-            e('button',{className:'btn btn-chip',onClick:()=>setState(s=>({...s,myRosterCollapsed:!s.myRosterCollapsed}))},
+            e('button',{className:'btn btn-chip',onClick:()=>window.__setState(s=>({...s,myRosterCollapsed:!s.myRosterCollapsed}))},
               state.myRosterCollapsed?'Expand':'Collapse'
             )
           ),
           state.myRosterCollapsed
-          ? e(MyRosterCollapsedSummary,{list:league.drafted.filter(p=>p.draftedBy===0)})
+          ? e(MyRosterCollapsedSummary,{list:league.drafted.filter(p=>p.draftedBy===0), currentPlayers})
           : (function(){
               const order=['QB','RB','WR','TE','K','DEF','BN']; const groups=[];
               order.forEach(pos=>{
-                const list=(myByPos[pos]||[]).slice().sort((a,b)=> (a.name>b.name?1:-1));
+                const list=(league.drafted.filter(p=>p.draftedBy===0 && p.pos===pos)).slice().sort((a,b)=> (a.name>b.name?1:-1));
                 if(list.length){
                   groups.push(
                     e('div',{key:pos,className:'mb-2'},
                       e('div',{className:'d-flex justify-content-between align-items-center mb-1'},
-                        e('span',{className:'pill'},pos,' • ',list.length),
-                        pos==='TE'? e('span',{className:'pill'},'FLEX: ',needInfo.flexFilled,' / ',(state.targets.FLEX||0)):null
+                        e('span',{className:'pill'},pos,' • ',list.length)
                       ),
                       e('ul',{className:'list-group'},
                         list.map(p=>{
@@ -681,17 +722,17 @@ function App(){
               !state.draftedCollapsed ? e('span',{className:'ms-2 small',style:{color:'#c7d6de'}},'(', state.draftedView==='last3'?'Last 3':state.draftedView==='last10'?'Last 10':'All',')') : null
             ),
             e('div',{className:'d-inline-flex gap-2'},
-              e('button',{className:'btn-chip',onClick:()=>setState(s=>({...s,draftedView:'last3', draftedCollapsed:false}))},'Last 3'),
-              e('button',{className:'btn-chip',onClick:()=>setState(s=>({...s,draftedView:'last10', draftedCollapsed:false}))},'Last 10'),
-              e('button',{className:'btn-chip',onClick:()=>setState(s=>({...s,draftedView:'all', draftedCollapsed:false}))},'All'),
-              !state.draftedCollapsed ? e('button',{className:'btn-chip',onClick:()=>setState(s=>({...s,draftedCollapsed:true}))},'Collapse') : null
+              e('button',{className:'btn-chip',onClick:()=>window.__setState(s=>({...s,draftedView:'last3', draftedCollapsed:false}))},'Last 3'),
+              e('button',{className:'btn-chip',onClick:()=>window.__setState(s=>({...s,draftedView:'last10', draftedCollapsed:false}))},'Last 10'),
+              e('button',{className:'btn-chip',onClick:()=>window.__setState(s=>({...s,draftedView:'all', draftedCollapsed:false}))},'All'),
+              !state.draftedCollapsed ? e('button',{className:'btn-chip',onClick:()=>window.__setState(s=>({...s,draftedCollapsed:true}))},'Collapse') : null
             )
           ),
           state.draftedCollapsed ? e('div',{className:'text-muted'},'Select Last 3 / Last 10 / All to expand')
           : (function(){
               const sorted=[...league.drafted].sort((a,b)=> new Date(b.ts||0)-new Date(a.ts||0));
               const shown=state.draftedView==='last3'?sorted.slice(0,3):state.draftedView==='last10'?sorted.slice(0,10):sorted;
-              return shown.length? e('ul',{className:'list-group'}, shown.map(p=>e(DraftListItem,{key:p.uid,entry:p}))) : e('div',{className:'text-muted'},'No picks yet');
+              return shown.length? e('ul',{className:'list-group'}, shown.map(p=>e(DraftListItem,{key:p.uid,entry:p,state}))) : e('div',{className:'text-muted'},'No picks yet');
             })()
         )
       ),
@@ -703,7 +744,7 @@ function App(){
           e('div',{className:'table-responsive',style:{maxHeight:'60vh',overflow:'auto',borderRadius:'12px'}},
             e('table',{className:'table table-sm align-middle'},
               e('thead',null, e('tr',null, e('th',null,'Pos Rank'), e('th',null,'Player / Team / Pos / SoS'), e('th',null,'Quick Draft'))),
-              e('tbody',null, roster.map(p=> e(PlayerRow,{key:p.id+'-'+p.name,p})))
+              e('tbody',null, roster.map(p=> e(PlayerRow,{key:p.id+'-'+p.name,p,state})))
             )
           )
         ),
@@ -743,7 +784,7 @@ function App(){
     );
   }
 
-  function ManagersView(){
+  function ManagersView(state){
     const lg=state.leagues[state.scoring];
     const currentPlayers=state.scoring==='PPR'?state.playersPPR:state.playersSTD;
 
@@ -880,11 +921,11 @@ function App(){
     );
   }
 
-  function SettingsView(){
+  function SettingsView(state){
     const initialNames = (state.participantNames && state.participantNames.length === 10)
       ? state.participantNames
       : (state.leagues[state.scoring].teams.map(t => t.name));
-    const [names, setNames] = useState(initialNames);
+    const [names, setNames] = React.useState(initialNames);
 
     function onNameChange(i, value){
       const next = names.slice(); next[i] = value; setNames(next);
@@ -895,7 +936,7 @@ function App(){
         if (trimmed) return trimmed;
         return i === 0 ? 'My Team' : `Team ${i+1}`;
       });
-      setState(s => {
+      window.__setState(s => {
         function applyNames(lg){
           const teams = lg.teams.map(t => ({ ...t, name: cleaned[t.id] || t.name }));
           return { ...lg, teams };
@@ -907,7 +948,6 @@ function App(){
         };
       });
     }
-    function resetToDefaults(){ setNames(Array.from({length:10}, (_,i)=> i===0 ? 'My Team' : `Team ${i+1}`)); }
 
     return e('div',{className:'row g-3'},
       e('div',{className:'col-12 col-xl-6'},
@@ -915,25 +955,25 @@ function App(){
           e('div',{className:'panel-title mb-2'},'Imports & Default League'),
           e('div',{className:'mb-2',style:{color:'#c7d6de'}},'CSV imports are shared; drafted/budgets are per league.'),
           e('div',{className:'mb-3 d-flex gap-2 flex-wrap'},
-            e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'PPR'}))},'Default to PPR'),
-            e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>setState(s=>({...s,scoring:'STD'}))},'Default to Standard')
+            e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>window.__setState(s=>({...s,scoring:'PPR'}))},'Default to PPR'),
+            e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>window.__setState(s=>({...s,scoring:'STD'}))},'Default to Standard')
           ),
           e('div',{className:'mb-3'},
-            e('label',{className:'form-label'},'Import FantasyPros CSV — PPR'),
-            e('input',{type:'file',accept:'.csv',className:'form-control',onChange:ev=>importCSV('playersPPR',ev.target.files[0])}),
+            e('label',{className:'form-label'},'Import FantasyPros CSV — PPR (covers top 300+)'),
+            e('input',{type:'file',accept:'.csv',className:'form-control',onChange:ev=>window.__importCSV('playersPPR',ev.target.files[0])}),
             e('div',{className:'small',style:{color:'#c7d6de'}}, state.playersPPR.length?('Loaded '+state.playersPPR.length+' (PPR)'):'No PPR file loaded yet')
           ),
           e('div',{className:'mb-3'},
             e('label',{className:'form-label'},'Import FantasyPros CSV — Standard'),
-            e('input',{type:'file',accept:'.csv',className:'form-control',onChange:ev=>importCSV('playersSTD',ev.target.files[0])}),
+            e('input',{type:'file',accept:'.csv',className:'form-control',onChange:ev=>window.__importCSV('playersSTD',ev.target.files[0])}),
             e('div',{className:'small',style:{color:'#c7d6de'}}, state.playersSTD.length?('Loaded '+state.playersSTD.length+' (Standard)'):'No Standard file loaded yet')
           ),
           e('div',{className:'mb-3'},
             e('label',{className:'form-label'},'Import Strength of Schedule CSV (Team,QB,RB,WR,TE,K,DST)'),
-            e('input',{type:'file',accept:'.csv',className:'form-control',onChange:ev=>importSOS(ev.target.files[0])}),
+            e('input',{type:'file',accept:'.csv',className:'form-control',onChange:ev=>window.__importSOS(ev.target.files[0])}),
             e('div',{className:'small',style:{color:'#c7d6de'}}, Object.keys(state.sosMap||{}).length?('Loaded SoS for '+Object.keys(state.sosMap).length+' teams'):'No SoS file loaded yet')
           ),
-          e('div',{className:'mt-1'}, e('button',{className:'btn btn-outline-contrast',onClick:exportDraftCSV},'Export Draft CSV'))
+          e('div',{className:'mt-1'}, e('button',{className:'btn btn-outline-contrast',onClick:window.__exportDraftCSV},'Export Draft CSV'))
         )
       ),
 
@@ -950,10 +990,7 @@ function App(){
           ),
           e('div',{className:'d-flex gap-2 mt-3'},
             e('button',{className:'btn btn-primary',onClick:saveParticipantNames},'Save Names'),
-            e('button',{className:'btn btn-outline-contrast',onClick:resetToDefaults},'Reset to Defaults')
-          ),
-          e('div',{className:'small mt-2',style:{color:'#c7d6de'}},
-            'Saving updates quick-draft menus & Managers tables. Draft history stays intact.'
+            e('button',{className:'btn btn-outline-contrast',onClick:()=>window.__setState(s=>({...s, participantNames:Array.from({length:10},(_,i)=> i===0 ? 'My Team' : `Team ${i+1}`)}))},'Reset to Defaults')
           )
         )
       ),
@@ -967,7 +1004,7 @@ function App(){
     );
   }
 
-  function DetailsModal(){
+  function DetailsModal(state){
     const p=state.detail; if(!p) return null;
     const league=state.leagues[state.scoring]; const currentPlayers=state.scoring==='PPR'?state.playersPPR:state.playersSTD;
     const myMax=maxBidForTeam(league.teams[0],league.drafted,0,state.rosterSize);
@@ -977,12 +1014,16 @@ function App(){
     const generated = buildExpertOutlook(p,currentPlayers,state.sosMap);
     const note = packedNote || generated;
 
+    const rec = recommendPlayer(p,state,currentPlayers);
+    const inj = state.injuriesByPlayer?.[p.name];
+    const tag = state.tagsByPlayer?.[p.name];
+
     return e('div',{className:'modal show d-block',tabIndex:'-1',role:'dialog','aria-modal':'true'},
       e('div',{className:'modal-dialog modal-dialog-scrollable'},
         e('div',{className:'modal-content'},
           e('div',{className:'modal-header'},
             e('div',null, e('div',{className:'h5 m-0'},p.name), e('div',{className:'small',style:{color:'#c7d6de'}}, p.teamAbbr,' • ',p.pos)),
-            e('button',{type:'button',className:'btn-close','aria-label':'Close',onClick:()=>setState(s=>({...s,detail:null}))})
+            e('button',{type:'button',className:'btn-close','aria-label':'Close',onClick:()=>window.__setState(s=>({...s,detail:null}))})
           ),
           e('div',{className:'modal-body'},
             e('div',{className:'d-flex align-items-center gap-2 mb-2'},
@@ -990,20 +1031,39 @@ function App(){
               e('span',{className:`band ${rankBand(pr)}`}, 'Pos Rank ', pr?('#'+pr):'—')
             ),
             sos? e('div',{className:'mb-2'}, e('span',{className:'sos',title:sos.blurb}, e('span',{className:'stars'},starsTxt(sos.stars||0)), 'SoS')):null,
-            e('div',{className:'small',style:{color:'#d4e7ef'}}, 'Overall Rank: ',p.rank, p.bye?` • Bye ${p.bye}`:''),
+
+            inj ? e('div',{className:'mt-2'},
+              e('div',{className:'icon icon-injury mb-1'},'✚',' Injury'),
+              e('div',null, inj.status?e('div',null, e('strong',null,inj.status)):null ),
+              e('div',null, inj.summary||'—'),
+              inj.timetable? e('div',{className:'small',style:{color:'#c7d6de'}},'Timetable: ',inj.timetable):null,
+              inj.source? e('div',{className:'small',style:{color:'#7fa0b1'}},'Source: ',inj.source):null
+            ) : null,
+
+            tag ? e('div',{className:'mt-3'},
+              e('div',{className:`icon ${tag.tag==='sleeper'?'icon-sleeper':'icon-bust'} mb-1`}, tag.tag==='sleeper'?'☾ Sleeper':'⚠ Bust'),
+              e('div',null, tag.reason||'—'),
+              tag.source? e('div',{className:'small',style:{color:'#7fa0b1'}},'Source: ',tag.source):null
+            ) : null,
+
             e('div',{className:'mt-3'},
               e('div',{className:'small',style:{color:'#c7d6de'}}, packedNote?'Expert Outlook':'Data-Driven Outlook'),
               e('div',null, note),
-              e('div',{className:'small mt-2',style:{color:'#7fa0b1'}}, 'Based on FantasyPros consensus ranking fields (ECR vs ADP) and your SoS file.')
+              e('div',{className:'small mt-2',style:{color:'#7fa0b1'}}, 'Powered by your CSV (ECR vs ADP), SoS file, and local insights snapshot.')
+            ),
+
+            e('div',{className:'mt-3'},
+              e('div',{className:'small',style:{color:'#c7d6de'}},'Recommendation'),
+              e('div',null, e('strong',null, rec.verdict),' — ', rec.reasons.join('; '))
             )
           ),
           e('div',{className:'modal-footer d-flex justify-content-between align-items-center'},
             e('span',{className:'pill'},'My Max Bid: $'+myMax.toFixed(2)),
-            (function(){const[teamId,setTeamId]=useState(0); const[costStr,setCostStr]=useState(''); const sel=league.teams.find(t=>t.id===teamId); const mb=maxBidForTeam(sel,league.drafted,teamId,state.rosterSize); const cv=parseFloat(costStr); const ok=!isNaN(cv)&&cv>=MIN_BID&&cv<=mb&&((cv*2)%1===0);
+            (function(){const[teamId,setTeamId]=React.useState(0); const[costStr,setCostStr]=React.useState(''); const sel=league.teams.find(t=>t.id===teamId); const mb=maxBidForTeam(sel,league.drafted,teamId,state.rosterSize); const cv=parseFloat(costStr); const ok=!isNaN(cv)&&cv>=MIN_BID&&cv<=mb&&((cv*2)%1===0);
               return e('div',{className:'d-flex gap-2'},
                 e('select',{className:'form-select form-select-sm',style:{width:'160px'},value:teamId,onChange:e=>setTeamId(Number(e.target.value))},league.teams.map(t=>e('option',{key:t.id,value:t.id},t.name))),
                 e('input',{type:'number',inputMode:'decimal',step:0.5,min:MIN_BID,placeholder:'$',value:costStr,onChange:e=>setCostStr(e.target.value),className:'form-control form-control-sm',style:{width:'90px'}}),
-                e('button',{className:'btn btn-sm btn-primary',disabled:!ok,onClick:()=>{if(ok){draftPlayer(p,teamId,cv); setCostStr('');}}}, ok?'Draft':`Max $${mb.toFixed(2)}`)
+                e('button',{className:'btn btn-sm btn-primary',disabled:!ok,onClick:()=>{if(ok){window.__draftPlayer(p,teamId,cv); setCostStr('');}}}, ok?'Draft':`Max $${mb.toFixed(2)}`)
               );
             })()
           )
@@ -1012,7 +1072,7 @@ function App(){
     );
   }
 
-  function DraftListItem({entry}){
+  function DraftListItem({entry,state}){
     const league=state.leagues[state.scoring]; const currentPlayers=state.scoring==='PPR'?state.playersPPR:state.playersSTD;
     const mgr=league.teams.find(t=>t.id===entry.draftedBy)?.name||('Team '+(entry.draftedBy+1));
     const pr=computePosRank(entry,currentPlayers); const b=rankBand(pr); const rankText=pr?`#${pr}`:'—';
@@ -1029,13 +1089,23 @@ function App(){
       ),
       e('span',null,
         e('span',{className:'money me-3'},'$'+Number(entry.cost||0).toFixed(2)),
-        e('a',{className:'me-3',style:{cursor:'pointer',textDecoration:'underline dotted'},onClick:()=>setState(s=>({...s,editDraft:entry}))},'Edit'),
-        e('a',{style:{cursor:'pointer',textDecoration:'underline dotted'},onClick:()=>{ if(confirm(undoText)) undoDraft(entry);} },'Undo')
+        e('a',{className:'me-3',style:{cursor:'pointer',textDecoration:'underline dotted'},onClick:()=>window.__setState(s=>({...s,editDraft:entry}))},'Edit'),
+        e('a',{style:{cursor:'pointer',textDecoration:'underline dotted'},onClick:()=>{ if(confirm(undoText)) window.__undoDraft(entry);} },'Undo')
       )
     );
   }
 
-  function EditModal(){
+  /* Small router shim */
+  function Router({state}){
+    useEffect(()=>{const view=window.location.hash?.slice(1); if(view==='settings'||view==='managers'){ if(view!==state.view) setTimeout(()=>window.switchView(view),0);} },[state.view]);
+    return e(React.Fragment,null,
+      state.view==='settings'? e(SettingsView,state) : state.view==='managers'? e(ManagersView,state) : e(DraftView,state),
+      e(DetailsModal,state),
+      state.editDraft? e(EditModal,state) : null
+    );
+  }
+
+  function EditModal(state){
     const entry=state.editDraft; if(!entry) return null;
     let newTeam=entry.draftedBy; let newCostStr=String(entry.cost?.toFixed?entry.cost.toFixed(2):entry.cost??'');
     return e('div',{className:'modal show d-block',tabIndex:'-1',role:'dialog','aria-modal':'true'},
@@ -1043,7 +1113,7 @@ function App(){
         e('div',{className:'modal-content'},
           e('div',{className:'modal-header'},
             e('h5',{className:'modal-title'},'Edit Draft — ',entry.name,' (',state.scoring,')'),
-            e('button',{type:'button',className:'btn-close','aria-label':'Close',onClick:()=>setState(s=>({...s,editDraft:null}))})
+            e('button',{type:'button',className:'btn-close','aria-label':'Close',onClick:()=>window.__setState(s=>({...s,editDraft:null}))})
           ),
           e('div',{className:'modal-body'},
             e('div',{className:'mb-3'},
@@ -1057,25 +1127,40 @@ function App(){
             e('div',{className:'small',style:{color:'#c7d6de'}},'Saving adjusts team budgets & Max Bids in this league.')
           ),
           e('div',{className:'modal-footer'},
-            e('button',{className:'btn btn-outline-contrast',onClick:()=>setState(s=>({...s,editDraft:null}))},'Cancel'),
-            e('button',{className:'btn btn-primary',onClick:()=>{const amt=parseFloat(newCostStr); if(!isNaN(amt)&&amt>=MIN_BID&&((amt*2)%1===0)){applyEdit(entry.uid,newTeam,amt);} }},'Save changes')
+            e('button',{className:'btn btn-outline-contrast',onClick:()=>window.__setState(s=>({...s,editDraft:null}))},'Cancel'),
+            e('button',{className:'btn btn-primary',onClick:()=>{const amt=parseFloat(newCostStr); if(!isNaN(amt)&&amt>=MIN_BID&&((amt*2)%1===0)){window.__applyEdit(entry.uid,newTeam,amt);} }},'Save changes')
           )
         )
       )
     );
   }
 
-  /* Router */
-  useEffect(()=>{const view=window.location.hash?.slice(1); if(view==='settings'||view==='managers'){ if(view!==state.view) setTimeout(()=>window.switchView(view),0);} },[state.view]);
-
-  return e(React.Fragment,null,
-    state.view==='settings'? e(SettingsView) : state.view==='managers'? e(ManagersView) : e(DraftView),
-    e(DetailsModal),
-    e(EditModal)
-  );
-}
+  /* expose some functions for event handlers above */
+  window.__setState = (fn)=>{ window.__SET(fn); };
+  window.__importCSV = (which,file)=> window.__IMP(which,file);
+  window.__importSOS = (file)=> window.__SOS(file);
+  window.__exportDraftCSV = ()=> window.__EXP();
+  window.__draftPlayer = (p,t,c)=> window.__DRAFT(p,t,c);
+  window.__undoDraft = (e)=> window.__UNDO(e);
+  window.__applyEdit = (u,t,c)=> window.__EDIT(u,t,c);
 </script><script>
-ReactDOM.createRoot(document.getElementById('root')).render(e(App));
+ReactDOM.createRoot(document.getElementById('root')).render(e(function Shell(){
+  const [state, setState] = useStoredState(initialState());
+  /* expose setters & helpers used by inner functions */
+  useEffect(()=>{ window.__SET = (fn)=> setState(s=>fn(s)); },[]);
+  useEffect(()=>{ window.__IMP = (w,f)=>{ const add = document.createElement('script'); add.src='https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js'; add.onload=()=>{ Papa.parse(f,{header:true,skipEmptyLines:true,transformHeader:h=>(h||'').trim(),complete:(res)=>{ const players=res.data.map(parseFPRowFlexible).filter(Boolean).sort((a,b)=>(a.rank||9999)-(b.rank||9999)); setState(s=>({...s,[w]:players})); }}); }; document.body.appendChild(add); }; },[]);
+  useEffect(()=>{ window.__SOS = (f)=>{ const add = document.createElement('script'); add.src='https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js'; add.onload=()=>{ Papa.parse(f,{header:true,skipEmptyLines:true,transformHeader:h=>(h||'').trim(),complete:(res)=>{ const map=parseSOSCsv(res.data||[]); setState(s=>({...s,sosMap:map})); }}); }; document.body.appendChild(add); }; },[]);
+  useEffect(()=>{ window.__EXP = ()=>{ const league=state.leagues[state.scoring]; const rows=[['League','Manager','Player','NFL Team','Pos','Cost','Timestamp']]; for(const p of league.drafted){ const mgr=league.teams.find(t=>t.id===p.draftedBy)?.name||('Team '+(p.draftedBy+1)); rows.push([state.scoring,mgr,p.name,p.teamAbbr,p.pos,p.cost,p.ts||'']); } const csv=rows.map(r=>r.map(x=>{const s=(x==null?'':String(x)); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;}).join(',')).join('\n'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download=`draft_results_${state.scoring}.csv`; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500); }; },[state.leagues,state.scoring]);
+
+  useEffect(()=>{ window.__DRAFT = (p,t,c)=>{ const amt=Number(c); if(isNaN(amt)||amt<MIN_BID||((amt*2)%1)!==0) return; setState(s=>{ const lg=s.leagues[s.scoring]; const mark=list=>list.map(x=>(x.id===p.id && x.name===p.name)?{...x,draftedBy:t,cost:amt}:x); const playersPPR=(s.scoring==='PPR'?mark(s.playersPPR):s.playersPPR); const playersSTD=(s.scoring==='STD'?mark(s.playersSTD):s.playersSTD); const entry={uid:uid(),...p,draftedBy:t,cost:amt,scoring:s.scoring,ts:new Date().toISOString()}; const drafted=lg.drafted.concat([entry]); const teams=lg.teams.map(tm=>tm.id===t?{...tm,spent:Number((tm.spent+amt).toFixed(2)),budget:Number((200-(tm.spent+amt)).toFixed(2))}:tm); const leagues={...s.leagues,[s.scoring]:{...lg,drafted,teams}}; return {...s,playersPPR,playersSTD,leagues,detail:null}; }); }; },[]);
+  useEffect(()=>{ window.__UNDO = (entry)=>{ setState(s=>{ const lg=s.leagues[s.scoring]; const target=lg.drafted.find(d=>d.uid===entry.uid); if(!target) return s; const drafted=lg.drafted.filter(d=>d.uid!==entry.uid); const unmark=list=>list.map(x=>(x.id===target.id && x.name===target.name)?{...x,draftedBy:null,cost:null}:x); const playersPPR=(s.scoring==='PPR'?unmark(s.playersPPR):s.playersPPR); const playersSTD=(s.scoring==='STD'?unmark(s.playersSTD):s.playersSTD); const teams=lg.teams.map(tm=>tm.id===target.draftedBy?{...tm,spent:Number((tm.spent-(target.cost||0)).toFixed(2)),budget:Number((200-(tm.spent-(target.cost||0))).toFixed(2))}:tm); const leagues={...s.leagues,[s.scoring]:{...lg,drafted,teams}}; return {...s,playersPPR,playersSTD,leagues}; }); }; },[]);
+  useEffect(()=>{ window.__EDIT = (uidToEdit,newTeamId,newCost)=>{ const amt=Number(newCost); if(isNaN(amt)||amt<MIN_BID||((amt*2)%1)!==0) return; setState(s=>{ const lg=s.leagues[s.scoring]; const d=lg.drafted.find(x=>x.uid===uidToEdit); if(!d) return s; const oldTeam=d.draftedBy, oldCost=d.cost; const drafted=lg.drafted.map(x=>x.uid===uidToEdit?{...x,draftedBy:newTeamId,cost:amt}:x); const teams=lg.teams.map(t=>{ if(t.id===oldTeam && oldTeam!==newTeamId){const spent=Number((t.spent-oldCost).toFixed(2)); return {...t,spent,budget:Number((200-spent).toFixed(2))};} if(t.id===newTeamId){const delta=(newTeamId===oldTeam)?(amt-oldCost):amt; const spent=Number((t.spent+delta).toFixed(2)); return {...t,spent,budget:Number((200-spent).toFixed(2))};} return t; }); const leagues={...s.leagues,[s.scoring]:{...lg,drafted,teams}}; return {...s,leagues,editDraft:null}; }); }; },[]);
+
+  /* Load local insights once */
+  useEffect(()=>{ loadLocalInsights(setState); },[]);
+
+  return e(Router,{state});
+}));
 </script>
 </body>
 </html>
