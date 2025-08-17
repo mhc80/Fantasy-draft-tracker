@@ -5,11 +5,56 @@
 <title>Fantasy Auction Draft Tracker — Insights+</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<!-- React 18 (UMD) -->
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<!-- DEBUG/RESILIENT LOADER (fallbacks + error overlay) -->
+<script>
+  (function(){
+    function show(msg){
+      var box = document.getElementById('boot-error-box');
+      if(!box){
+        box = document.createElement('div');
+        box.id='boot-error-box';
+        box.style.cssText='position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;background:#240b0b;color:#ffd7d7;border:1px solid #b44;padding:10px;border-radius:10px;font:14px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;white-space:pre-wrap;max-height:40vh;overflow:auto;';
+        box.innerHTML='<strong>Boot error</strong><br>';
+        document.addEventListener('click', ()=>{box.remove();},{once:true});
+        document.body.appendChild(box);
+      }
+      box.innerHTML += msg+'\n';
+    }
+    window.addEventListener('error', function(e){
+      show((e.message||'Script error')+' @ '+(e.filename||'')+':'+(e.lineno||'')+':'+(e.colno||''));
+    });
+    window.addEventListener('unhandledrejection', function(e){
+      show('Promise rejection: '+(e.reason && (e.reason.stack||e.reason.message||e.reason.toString())));
+    });
 
-<!-- Bootstrap 5 -->
+    // Load React + ReactDOM with fallbacks (unpkg -> jsDelivr -> esm.run)
+    (function loadReact(){
+      var queue = [
+        'https://unpkg.com/react@18/umd/react.production.min.js',
+        'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
+        'https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js',
+        'https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js',
+        'https://esm.run/react@18/umd/react.production.min.js',
+        'https://esm.run/react-dom@18/umd/react-dom.production.min.js'
+      ];
+      function next(){
+        if(queue.length===0){ show('Could not load React/ReactDOM'); return; }
+        var src = queue.shift();
+        var s = document.createElement('script');
+        s.src = src; s.async = false;
+        s.onload = function(){
+          if (typeof React !== 'undefined' && typeof ReactDOM !== 'undefined') {
+            document.dispatchEvent(new Event('react-ready'));
+          } else { next(); }
+        };
+        s.onerror = next;
+        document.head.appendChild(s);
+      }
+      next();
+    })();
+  })();
+</script>
+
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
 <style>
@@ -93,12 +138,6 @@ body{
 .ac-item .meta { color:#c7d6de; font-size:.9rem }
 .ac-item.active, .ac-item:hover { background:#12343e; }
 
-/* Insight icons */
-.icon { display:inline-flex; align-items:center; gap:.25rem; padding:.15rem .45rem; border-radius:999px; font-weight:700; border:1px solid transparent; font-size:.85rem }
-.icon-injury{ background:#2a0f12; border-color:#a4434c; color:#ffd3d6 }
-.icon-sleeper{ background:#0f1b2a; border-color:#4462a4; color:#cfe1ff }
-.icon-bust{ background:#2a1f0f; border-color:#a47d44; color:#ffe8c7 }
-
 @media (orientation: portrait){ .stack-portrait{ display:flex; flex-direction:column; gap:1rem } .sticky{ position:static } }
 @media (orientation: landscape) and (max-height: 520px){ .table-responsive{ max-height:50vh !important } }
 </style>
@@ -109,14 +148,14 @@ body{
     <div className="d-flex align-items-center gap-3">
       <h1 class="h4 m-0">Fantasy Auction Draft Tracker</h1>
       <nav class="d-none d-md-flex navtabs">
-        <button id="tab-draft" class="tablink active" onclick="window.switchView('draft')">Draft</button>
-        <button id="tab-managers" class="tablink" onclick="window.switchView('managers')">Managers</button>
-        <button id="tab-settings" class="tablink" onclick="window.switchView('settings')">Settings</button>
+        <button id="tab-draft" class="tablink active">Draft</button>
+        <button id="tab-managers" class="tablink">Managers</button>
+        <button id="tab-settings" class="tablink">Settings</button>
       </nav>
     </div>
     <div class="small text-end">
       <div>Draft Day: <strong>Aug 17</strong></div>
-      <div class="muted">Toggle PPR/Standard = switch league context</div>
+      <div class="muted">Toggle PPR/Standard = switch league</div>
     </div>
   </div>
 </header>
@@ -125,7 +164,7 @@ body{
 const e=React.createElement; const {useState,useEffect,useMemo}=React;
 
 /* CONFIG */
-const STORAGE_KEY='auction_tracker_dual_league_dashboard_v8_insights';
+const STORAGE_KEY='auction_tracker_dual_league_dashboard_v9_insights';
 const MIN_BID=0.5;
 
 /* Logos + teams */
@@ -302,7 +341,7 @@ function recommendPlayer(p, state, currentPlayers){
   return {verdict, score, reasons};
 }
 </script><script>
-/* --- Local insights loader (no cloud) --- */
+/* --- Local insights loader (no cloud needed) --- */
 async function loadLocalInsights(setState){
   try{
     const res = await fetch('./insights.json', {cache:'no-store'});
@@ -339,7 +378,9 @@ async function loadLocalInsights(setState){
 /* App */
 function App(){
   const [state,setState]=useStoredState(initialState());
+  // expose switchView + setState
   useEffect(()=>{window.switchView=(v)=>{setState(s=>({...s,view:v})); ['tab-draft','tab-settings','tab-managers'].forEach(id=>{const el=document.getElementById(id); if(el) el.classList.remove('active');}); const map={draft:'tab-draft',settings:'tab-settings',managers:'tab-managers'}; const el=document.getElementById(map[v]); if(el) el.classList.add('active');}},[]);
+  useEffect(()=>{ window.__SET = (fn)=> setState(s=>fn(s)); },[]);
   /* Load local snapshot once */
   useEffect(()=>{ loadLocalInsights(setState); },[]);
 
@@ -501,8 +542,23 @@ function App(){
     );
   }
 
-  /* Quick Draft row */
-  function QuickDraftRow({player}){
+  /* expose helpers for other parts */
+  window.__importCSV = (which,file)=> importCSV(which,file);
+  window.__importSOS = (file)=> importSOS(file);
+  window.__exportDraftCSV = ()=> exportDraftCSV();
+  window.__draftPlayer = (p,t,c)=> draftPlayer(p,t,c);
+  window.__undoDraft = (e)=> undoDraft(e);
+  window.__applyEdit = (u,t,c)=> applyEdit(u,t,c);  function InsightIcons({player}, stateRef){
+    const inj = stateRef?.injuriesByPlayer?.[player.name];
+    const tag = stateRef?.tagsByPlayer?.[player.name];
+    return e('span',{className:'d-inline-flex gap-1 align-items-center'},
+      inj ? e('span',{className:'icon-injury icon',title:(inj.status?inj.status+': ':'')+(inj.summary||'Injury note')},'✚') : null,
+      tag?.tag==='sleeper' ? e('span',{className:'icon-sleeper icon',title:tag.reason||'Sleeper'},'☾') : null,
+      tag?.tag==='bust' ? e('span',{className:'icon-bust icon',title:tag.reason||'Bust'},'⚠') : null
+    );
+  }
+
+  function QuickDraftRow({player, league, state}){
     const drafted = player.draftedBy!=null;
     const [teamId,setTeamId]=useState(0);
     const [costStr,setCostStr]=useState('');
@@ -517,16 +573,7 @@ function App(){
     return e('div',{className:'d-flex align-items-center gap-2 flex-wrap'},
       e('select',{className:'form-select form-select-sm',style:{width:'160px'},value:teamId,onChange:e=>setTeamId(Number(e.target.value))},league.teams.map(t=>e('option',{key:t.id,value:t.id},t.name))),
       e('input',{type:'number',inputMode:'decimal',step:0.5,min:MIN_BID,placeholder:'$',value:costStr,onChange:e=>setCostStr(e.target.value),className:'form-control form-control-sm',style:{width:'90px'}}),
-      e('button',{className:'btn btn-sm btn-primary',disabled:!valid,onClick:()=>{if(valid){draftPlayer(player,teamId,parseFloat(costStr)); setCostStr('');}}}, valid? 'Draft' : `Max $${maxBid.toFixed(2)}`)
-    );
-  }<script>
-  function InsightIcons({player}, stateRef){
-    const inj = stateRef?.injuriesByPlayer?.[player.name];
-    const tag = stateRef?.tagsByPlayer?.[player.name];
-    return e('span',{className:'d-inline-flex gap-1 align-items-center'},
-      inj ? e('span',{className:'icon icon-injury',title:(inj.status?inj.status+': ':'')+(inj.summary||'Injury note')},'✚') : null,
-      tag?.tag==='sleeper' ? e('span',{className:'icon icon-sleeper',title:tag.reason||'Sleeper'},'☾') : null,
-      tag?.tag==='bust' ? e('span',{className:'icon icon-bust',title:tag.reason||'Bust'},'⚠') : null
+      e('button',{className:'btn btn-sm btn-primary',disabled:!valid,onClick:()=>{if(valid){window.__draftPlayer(player,teamId,parseFloat(costStr)); setCostStr('');}}}, valid? 'Draft' : `Max $${maxBid.toFixed(2)}`)
     );
   }
 
@@ -536,7 +583,6 @@ function App(){
     const pr=p._pr; const band=rankBand(pr); const sos=state.sosMap?.[p.teamAbbr]?.[p.pos];
     const isDrafted = p.draftedBy!=null;
     const mgrName = isDrafted ? (league.teams.find(t=>t.id===p.draftedBy)?.name||('Team '+(p.draftedBy+1))) : null;
-
     return e('tr',{className: isDrafted ? 'row-drafted' : ''},
       e('td',null, e('div',null, pr?'#'+pr:'—', ' ', e('span',{className:`band ${band} ms-2`}, band.charAt(0).toUpperCase()+band.slice(1)))),
       e('td',null,
@@ -555,8 +601,8 @@ function App(){
       e('td',null,
         e('div',{className:'d-flex gap-2 flex-wrap align-items-center'},
           e(InsightIcons,{player:p}, state),
-          e('button',{className:'btn btn-sm btn-outline-contrast',disabled:isDrafted,onClick:()=>!isDrafted && window.__setState(s=>({...s, detail:p}))},'Details'),
-          e(QuickDraftRow,{player:p})
+          e('button',{className:'btn btn-sm btn-outline-contrast',disabled:isDrafted,onClick:()=>!isDrafted && window.__SET(s=>({...s, detail:p}))},'Details'),
+          e(QuickDraftRow,{player:p, league, state})
         ))
     );
   }
@@ -602,10 +648,8 @@ function App(){
     const league=state.leagues[state.scoring];
     const me=league.teams[0]; const myMax=maxBidForTeam(me,league.drafted,0,state.rosterSize);
     const currentPlayers=state.scoring==='PPR'?state.playersPPR:state.playersSTD;
-    const draftedSorted=[...league.drafted].sort((a,b)=> new Date(b.ts||0)-new Date(a.ts||0));
-    const flexInfo=(function(){const have=countsByPosForTeam(league.drafted,0); const t=state.targets; const {flexFilled,flexRemaining}=computeFlexUsage(have,t); return {flexFilled,flexRemaining,req:t.FLEX||0};})();
 
-    /* Build roster table */
+    /* Build roster table for players list */
     const roster=useMemo(()=>{
       const list=currentPlayers.filter(p=>(!state.selectedTeam || p.teamAbbr===state.selectedTeam));
       const byPos=list.filter(p=>state.pos==='ALL'||p.pos===state.pos);
@@ -626,8 +670,8 @@ function App(){
             e('div',{className:'label'},'Active League'),
             e('div',{className:'value'}, state.scoring==='PPR'?'PPR':'Standard'),
             e('div',{className:'mt-2 d-inline-flex gap-2 flex-wrap'},
-              e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>window.__setState(s=>({...s,scoring:'PPR'}))},'PPR'),
-              e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>window.__setState(s=>({...s,scoring:'STD'}))},'Standard'),
+              e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>window.__SET(s=>({...s,scoring:'PPR'}))},'PPR'),
+              e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>window.__SET(s=>({...s,scoring:'STD'}))},'Standard'),
               e('button',{className:'btn btn-outline-contrast',onClick:()=>window.switchView('settings')},'Open Settings')
             ),
             e('div',{className:'mt-2',style:{color:'#c7d6de'}},
@@ -636,10 +680,7 @@ function App(){
             )
           ),
           e('div',{className:'metric'}, e('div',{className:'label'},'My Budget Left'), e('div',{className:'value'},'$'+Number(200-(me.spent||0)).toFixed(2))),
-          e('div',{className:'metric'}, e('div',{className:'label'},'My Max Bid'), e('div',{className:'value'},'$'+myMax.toFixed(2))),
-          e('div',{className:'metric'}, e('div',{className:'label'},'FLEX Filled'), e('div',{className:'value'},`${flexInfo.flexFilled} / ${flexInfo.req}`),
-            flexInfo.flexRemaining>0 ? e('div',{className:'small text-warning mt-1'}, flexInfo.flexRemaining,' FLEX still needed') : e('div',{className:'small text-success mt-1'},'FLEX complete')
-          )
+          e('div',{className:'metric'}, e('div',{className:'label'},'My Max Bid'), e('div',{className:'value'},'$'+myMax.toFixed(2)))
         )
       ),
 
@@ -649,7 +690,7 @@ function App(){
           e('div',{className:'panel-title mb-2'},'Filters'),
           e('div',{className:'mb-3'},
             e('label',{className:'form-label'},'Team Drawn From Hat'),
-            e('select',{className:'form-select',value:state.selectedTeam,onChange:ev=>window.__setState(s=>({...s,selectedTeam:ev.target.value}))},
+            e('select',{className:'form-select',value:state.selectedTeam,onChange:ev=>window.__SET(s=>({...s,selectedTeam:ev.target.value}))},
               [e('option',{key:'',value:''},'All Teams')].concat(TEAMS.map(t=>e('option',{key:t.abbr,value:t.abbr},`${t.abbr} — ${t.name}`)))
             )
           ),
@@ -658,14 +699,14 @@ function App(){
             e('ul',{className:'nav nav-pills flex-wrap gap-1'},
               ['ALL','QB','RB','WR','TE','K','DEF'].map(pos =>
                 e('li',{className:'nav-item',key:pos},
-                  e('button',{className:'nav-link '+(state.pos===pos?'active':''),onClick:()=>window.__setState(s=>({...s,pos}))},pos)
+                  e('button',{className:'nav-link '+(state.pos===pos?'active':''),onClick:()=>window.__SET(s=>({...s,pos}))},pos)
                 )
               )
             )
           ),
           e('div',{className:'mb-2'}, e(AutoCompleteSearch,{
             value:state.q,
-            onChange:(v)=>window.__setState(s=>({...s,q:v})),
+            onChange:(v)=>window.__SET(s=>({...s,q:v})),
             players:currentPlayers
           }))
         )
@@ -676,7 +717,7 @@ function App(){
         e('div',{className:'panel p-3'},
           e('div',{className:'d-flex justify-content-between align-items-center mb-2'},
             e('div',{className:'panel-title m-0'},'My Roster ('+state.scoring+')'),
-            e('button',{className:'btn btn-chip',onClick:()=>window.__setState(s=>({...s,myRosterCollapsed:!s.myRosterCollapsed}))},
+            e('button',{className:'btn btn-chip',onClick:()=>window.__SET(s=>({...s,myRosterCollapsed:!s.myRosterCollapsed}))},
               state.myRosterCollapsed?'Expand':'Collapse'
             )
           ),
@@ -722,10 +763,10 @@ function App(){
               !state.draftedCollapsed ? e('span',{className:'ms-2 small',style:{color:'#c7d6de'}},'(', state.draftedView==='last3'?'Last 3':state.draftedView==='last10'?'Last 10':'All',')') : null
             ),
             e('div',{className:'d-inline-flex gap-2'},
-              e('button',{className:'btn-chip',onClick:()=>window.__setState(s=>({...s,draftedView:'last3', draftedCollapsed:false}))},'Last 3'),
-              e('button',{className:'btn-chip',onClick:()=>window.__setState(s=>({...s,draftedView:'last10', draftedCollapsed:false}))},'Last 10'),
-              e('button',{className:'btn-chip',onClick:()=>window.__setState(s=>({...s,draftedView:'all', draftedCollapsed:false}))},'All'),
-              !state.draftedCollapsed ? e('button',{className:'btn-chip',onClick:()=>window.__setState(s=>({...s,draftedCollapsed:true}))},'Collapse') : null
+              e('button',{className:'btn-chip',onClick:()=>window.__SET(s=>({...s,draftedView:'last3', draftedCollapsed:false}))},'Last 3'),
+              e('button',{className:'btn-chip',onClick:()=>window.__SET(s=>({...s,draftedView:'last10', draftedCollapsed:false}))},'Last 10'),
+              e('button',{className:'btn-chip',onClick:()=>window.__SET(s=>({...s,draftedView:'all', draftedCollapsed:false}))},'All'),
+              !state.draftedCollapsed ? e('button',{className:'btn-chip',onClick:()=>window.__SET(s=>({...s,draftedCollapsed:true}))},'Collapse') : null
             )
           ),
           state.draftedCollapsed ? e('div',{className:'text-muted'},'Select Last 3 / Last 10 / All to expand')
@@ -885,37 +926,9 @@ function App(){
       ),
 
       e('div',{className:'col-12'},
-        e('div',{className:'panel p-3'},
-          e('div',{className:'panel-title mb-2'},'My Team Insights vs League'),
-          (function(){
-            const lgHere=state.leagues[state.scoring];
-            const currentPlayers=state.scoring==='PPR'?state.playersPPR:state.playersSTD;
-            const myTop10Only=myTop10;
-            let leagueTop10=0;
-            for(const p of lgHere.drafted){ if(['QB','RB','WR','TE'].includes(p.pos)){ const pr=computePosRank(p,currentPlayers); if(pr!=null && pr<=10) leagueTop10++; } }
-            const pctTop10 = leagueTop10>0 ? ((myTop10Only/leagueTop10)*100).toFixed(1)+'%' : '—';
-            const myCounts={}, othersCounts={};
-            for(const p of lgHere.drafted){
-              const pr=computePosRank(p,currentPlayers); const lab=tierForRank(pr);
-              const target=(p.draftedBy===0)? myCounts : othersCounts;
-              target[lab]=(target[lab]||0)+1;
-            }
-            return e('div',{className:'row g-3'},
-              e('div',{className:'col-12 col-md-6'},
-                e('div',{className:'metric'},
-                  e('div',{className:'label'},'My Top-10 Players (QB/RB/WR/TE)'),
-                  e('div',{className:'value'}, myTop10Only),
-                  e('div',{className:'mt-2',style:{color:'#c7d6de'}},'Others avg: ', othersAvgTop10.toFixed(2), ' • Share of league’s Top-10: ', pctTop10)
-                )
-              ),
-              e('div',{className:'col-12 col-md-6'},
-                e('div',{className:'metric'},
-                  e('div',{className:'label'},'Quick Tier Count (All Positions)'),
-                  e('div',{className:'mt-2'}, ['Top 5','6–10','11–15','16–20'].map(l=> e('span',{key:l,className:'pill me-2'}, l,' ', (myCounts[l]||0), ' vs ', (othersCounts[l]||0))))
-                )
-              )
-            );
-          })()
+        e('div',{className:'panel p-3 d-flex justify-content-between align-items-center'},
+          e('div',null, e('div',{className:'panel-title'},'Tip'), e('div',{className:'small',style:{color:'#c7d6de'}},'Use Settings to rename participants or import updated CSVs/SoS.')),
+          e('button',{className:'btn btn-primary',onClick:()=>window.switchView('draft')},'Back to Draft')
         )
       )
     );
@@ -936,7 +949,7 @@ function App(){
         if (trimmed) return trimmed;
         return i === 0 ? 'My Team' : `Team ${i+1}`;
       });
-      window.__setState(s => {
+      window.__SET(s => {
         function applyNames(lg){
           const teams = lg.teams.map(t => ({ ...t, name: cleaned[t.id] || t.name }));
           return { ...lg, teams };
@@ -955,8 +968,8 @@ function App(){
           e('div',{className:'panel-title mb-2'},'Imports & Default League'),
           e('div',{className:'mb-2',style:{color:'#c7d6de'}},'CSV imports are shared; drafted/budgets are per league.'),
           e('div',{className:'mb-3 d-flex gap-2 flex-wrap'},
-            e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>window.__setState(s=>({...s,scoring:'PPR'}))},'Default to PPR'),
-            e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>window.__setState(s=>({...s,scoring:'STD'}))},'Default to Standard')
+            e('button',{className:'btn '+(state.scoring==='PPR'?'btn-primary':'btn-outline-contrast'),onClick:()=>window.__SET(s=>({...s,scoring:'PPR'}))},'Default to PPR'),
+            e('button',{className:'btn '+(state.scoring==='STD'?'btn-primary':'btn-outline-contrast'),onClick:()=>window.__SET(s=>({...s,scoring:'STD'}))},'Default to Standard')
           ),
           e('div',{className:'mb-3'},
             e('label',{className:'form-label'},'Import FantasyPros CSV — PPR (covers top 300+)'),
@@ -990,7 +1003,7 @@ function App(){
           ),
           e('div',{className:'d-flex gap-2 mt-3'},
             e('button',{className:'btn btn-primary',onClick:saveParticipantNames},'Save Names'),
-            e('button',{className:'btn btn-outline-contrast',onClick:()=>window.__setState(s=>({...s, participantNames:Array.from({length:10},(_,i)=> i===0 ? 'My Team' : `Team ${i+1}`)}))},'Reset to Defaults')
+            e('button',{className:'btn btn-outline-contrast',onClick:()=>window.__SET(s=>({...s, participantNames:Array.from({length:10},(_,i)=> i===0 ? 'My Team' : `Team ${i+1}`)}))},'Reset to Defaults')
           )
         )
       ),
@@ -1023,7 +1036,7 @@ function App(){
         e('div',{className:'modal-content'},
           e('div',{className:'modal-header'},
             e('div',null, e('div',{className:'h5 m-0'},p.name), e('div',{className:'small',style:{color:'#c7d6de'}}, p.teamAbbr,' • ',p.pos)),
-            e('button',{type:'button',className:'btn-close','aria-label':'Close',onClick:()=>window.__setState(s=>({...s,detail:null}))})
+            e('button',{type:'button',className:'btn-close','aria-label':'Close',onClick:()=>window.__SET(s=>({...s,detail:null}))})
           ),
           e('div',{className:'modal-body'},
             e('div',{className:'d-flex align-items-center gap-2 mb-2'},
@@ -1089,13 +1102,12 @@ function App(){
       ),
       e('span',null,
         e('span',{className:'money me-3'},'$'+Number(entry.cost||0).toFixed(2)),
-        e('a',{className:'me-3',style:{cursor:'pointer',textDecoration:'underline dotted'},onClick:()=>window.__setState(s=>({...s,editDraft:entry}))},'Edit'),
+        e('a',{className:'me-3',style:{cursor:'pointer',textDecoration:'underline dotted'},onClick:()=>window.__SET(s=>({...s,editDraft:entry}))},'Edit'),
         e('a',{style:{cursor:'pointer',textDecoration:'underline dotted'},onClick:()=>{ if(confirm(undoText)) window.__undoDraft(entry);} },'Undo')
       )
     );
   }
 
-  /* Small router shim */
   function Router({state}){
     useEffect(()=>{const view=window.location.hash?.slice(1); if(view==='settings'||view==='managers'){ if(view!==state.view) setTimeout(()=>window.switchView(view),0);} },[state.view]);
     return e(React.Fragment,null,
@@ -1113,7 +1125,7 @@ function App(){
         e('div',{className:'modal-content'},
           e('div',{className:'modal-header'},
             e('h5',{className:'modal-title'},'Edit Draft — ',entry.name,' (',state.scoring,')'),
-            e('button',{type:'button',className:'btn-close','aria-label':'Close',onClick:()=>window.__setState(s=>({...s,editDraft:null}))})
+            e('button',{type:'button',className:'btn-close','aria-label':'Close',onClick:()=>window.__SET(s=>({...s,editDraft:null}))})
           ),
           e('div',{className:'modal-body'},
             e('div',{className:'mb-3'},
@@ -1127,91 +1139,63 @@ function App(){
             e('div',{className:'small',style:{color:'#c7d6de'}},'Saving adjusts team budgets & Max Bids in this league.')
           ),
           e('div',{className:'modal-footer'},
-            e('button',{className:'btn btn-outline-contrast',onClick:()=>window.__setState(s=>({...s,editDraft:null}))},'Cancel'),
+            e('button',{className:'btn btn-outline-contrast',onClick:()=>window.__SET(s=>({...s,editDraft:null}))},'Cancel'),
             e('button',{className:'btn btn-primary',onClick:()=>{const amt=parseFloat(newCostStr); if(!isNaN(amt)&&amt>=MIN_BID&&((amt*2)%1===0)){window.__applyEdit(entry.uid,newTeam,amt);} }},'Save changes')
           )
         )
       )
     );
   }
-
-  /* expose some functions for event handlers above */
-  window.__setState = (fn)=>{ window.__SET(fn); };
-  window.__importCSV = (which,file)=> window.__IMP(which,file);
-  window.__importSOS = (file)=> window.__SOS(file);
-  window.__exportDraftCSV = ()=> window.__EXP();
-  window.__draftPlayer = (p,t,c)=> window.__DRAFT(p,t,c);
-  window.__undoDraft = (e)=> window.__UNDO(e);
-  window.__applyEdit = (u,t,c)=> window.__EDIT(u,t,c);
 </script><script>
-ReactDOM.createRoot(document.getElementById('root')).render(e(function Shell(){
-  const [state, setState] = useStoredState(initialState());
-  /* expose setters & helpers used by inner functions */
-  useEffect(()=>{ window.__SET = (fn)=> setState(s=>fn(s)); },[]);
-  useEffect(()=>{ window.__IMP = (w,f)=>{ const add = document.createElement('script'); add.src='https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js'; add.onload=()=>{ Papa.parse(f,{header:true,skipEmptyLines:true,transformHeader:h=>(h||'').trim(),complete:(res)=>{ const players=res.data.map(parseFPRowFlexible).filter(Boolean).sort((a,b)=>(a.rank||9999)-(b.rank||9999)); setState(s=>({...s,[w]:players})); }}); }; document.body.appendChild(add); }; },[]);
-  useEffect(()=>{ window.__SOS = (f)=>{ const add = document.createElement('script'); add.src='https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js'; add.onload=()=>{ Papa.parse(f,{header:true,skipEmptyLines:true,transformHeader:h=>(h||'').trim(),complete:(res)=>{ const map=parseSOSCsv(res.data||[]); setState(s=>({...s,sosMap:map})); }}); }; document.body.appendChild(add); }; },[]);
-  useEffect(()=>{ window.__EXP = ()=>{ const league=state.leagues[state.scoring]; const rows=[['League','Manager','Player','NFL Team','Pos','Cost','Timestamp']]; for(const p of league.drafted){ const mgr=league.teams.find(t=>t.id===p.draftedBy)?.name||('Team '+(p.draftedBy+1)); rows.push([state.scoring,mgr,p.name,p.teamAbbr,p.pos,p.cost,p.ts||'']); } const csv=rows.map(r=>r.map(x=>{const s=(x==null?'':String(x)); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;}).join(',')).join('\n'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download=`draft_results_${state.scoring}.csv`; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500); }; },[state.leagues,state.scoring]);
+/* Mount the app */
+document.addEventListener('react-ready', function(){
+  const rootEl = document.getElementById('root');
+  if(!rootEl){ return; }
+  ReactDOM.createRoot(rootEl).render(e(function Shell(){
+    const [state, setState] = useStoredState(initialState());
+    useEffect(()=>{ window.__SET = (fn)=> setState(s=>fn(s)); },[]);
+    // expose import/export helpers for Settings
+    useEffect(()=>{ window.__importCSV = (w,f)=>{ const add = document.createElement('script'); add.src='https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js'; add.onload=()=>{ Papa.parse(f,{header:true,skipEmptyLines:true,transformHeader:h=>(h||'').trim(),complete:(res)=>{ const players=res.data.map(parseFPRowFlexible).filter(Boolean).sort((a,b)=>(a.rank||9999)-(b.rank||9999)); setState(s=>({...s,[w]:players})); }}); }; document.body.appendChild(add); }; },[]);
+    useEffect(()=>{ window.__importSOS = (f)=>{ const add = document.createElement('script'); add.src='https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js'; add.onload=()=>{ Papa.parse(f,{header:true,skipEmptyLines:true,transformHeader:h=>(h||'').trim(),complete:(res)=>{ const map=parseSOSCsv(res.data||[]); setState(s=>({...s,sosMap:map})); }}); }; document.body.appendChild(add); }; },[]);
+    useEffect(()=>{ window.__exportDraftCSV = ()=>{ const lg=state.leagues[state.scoring]; const rows=[['League','Manager','Player','NFL Team','Pos','Cost','Timestamp']]; for(const p of lg.drafted){ const mgr=lg.teams.find(t=>t.id===p.draftedBy)?.name||('Team '+(p.draftedBy+1)); rows.push([state.scoring,mgr,p.name,p.teamAbbr,p.pos,p.cost,p.ts||'']); } const csv=rows.map(r=>r.map(x=>{const s=(x==null?'':String(x)); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;}).join(',')).join('\n'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download=`draft_results_${state.scoring}.csv`; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500); }; },[state.leagues,state.scoring]);
 
-  useEffect(()=>{ window.__DRAFT = (p,t,c)=>{ const amt=Number(c); if(isNaN(amt)||amt<MIN_BID||((amt*2)%1)!==0) return; setState(s=>{ const lg=s.leagues[s.scoring]; const mark=list=>list.map(x=>(x.id===p.id && x.name===p.name)?{...x,draftedBy:t,cost:amt}:x); const playersPPR=(s.scoring==='PPR'?mark(s.playersPPR):s.playersPPR); const playersSTD=(s.scoring==='STD'?mark(s.playersSTD):s.playersSTD); const entry={uid:uid(),...p,draftedBy:t,cost:amt,scoring:s.scoring,ts:new Date().toISOString()}; const drafted=lg.drafted.concat([entry]); const teams=lg.teams.map(tm=>tm.id===t?{...tm,spent:Number((tm.spent+amt).toFixed(2)),budget:Number((200-(tm.spent+amt)).toFixed(2))}:tm); const leagues={...s.leagues,[s.scoring]:{...lg,drafted,teams}}; return {...s,playersPPR,playersSTD,leagues,detail:null}; }); }; },[]);
-  useEffect(()=>{ window.__UNDO = (entry)=>{ setState(s=>{ const lg=s.leagues[s.scoring]; const target=lg.drafted.find(d=>d.uid===entry.uid); if(!target) return s; const drafted=lg.drafted.filter(d=>d.uid!==entry.uid); const unmark=list=>list.map(x=>(x.id===target.id && x.name===target.name)?{...x,draftedBy:null,cost:null}:x); const playersPPR=(s.scoring==='PPR'?unmark(s.playersPPR):s.playersPPR); const playersSTD=(s.scoring==='STD'?unmark(s.playersSTD):s.playersSTD); const teams=lg.teams.map(tm=>tm.id===target.draftedBy?{...tm,spent:Number((tm.spent-(target.cost||0)).toFixed(2)),budget:Number((200-(tm.spent-(target.cost||0))).toFixed(2))}:tm); const leagues={...s.leagues,[s.scoring]:{...lg,drafted,teams}}; return {...s,playersPPR,playersSTD,leagues}; }); }; },[]);
-  useEffect(()=>{ window.__EDIT = (uidToEdit,newTeamId,newCost)=>{ const amt=Number(newCost); if(isNaN(amt)||amt<MIN_BID||((amt*2)%1)!==0) return; setState(s=>{ const lg=s.leagues[s.scoring]; const d=lg.drafted.find(x=>x.uid===uidToEdit); if(!d) return s; const oldTeam=d.draftedBy, oldCost=d.cost; const drafted=lg.drafted.map(x=>x.uid===uidToEdit?{...x,draftedBy:newTeamId,cost:amt}:x); const teams=lg.teams.map(t=>{ if(t.id===oldTeam && oldTeam!==newTeamId){const spent=Number((t.spent-oldCost).toFixed(2)); return {...t,spent,budget:Number((200-spent).toFixed(2))};} if(t.id===newTeamId){const delta=(newTeamId===oldTeam)?(amt-oldCost):amt; const spent=Number((t.spent+delta).toFixed(2)); return {...t,spent,budget:Number((200-spent).toFixed(2))};} return t; }); const leagues={...s.leagues,[s.scoring]:{...lg,drafted,teams}}; return {...s,leagues,editDraft:null}; }); }; },[]);
+    useEffect(()=>{ window.__draftPlayer = (p,t,c)=>{ const amt=Number(c); if(isNaN(amt)||amt<MIN_BID||((amt*2)%1)!==0) return; setState(s=>{ const lg=s.leagues[s.scoring]; const mark=list=>list.map(x=>(x.id===p.id && x.name===p.name)?{...x,draftedBy:t,cost:amt}:x); const playersPPR=(s.scoring==='PPR'?mark(s.playersPPR):s.playersPPR); const playersSTD=(s.scoring==='STD'?mark(s.playersSTD):s.playersSTD); const entry={uid:uid(),...p,draftedBy:t,cost:amt,scoring:s.scoring,ts:new Date().toISOString()}; const drafted=lg.drafted.concat([entry]); const teams=lg.teams.map(tm=>tm.id===t?{...tm,spent:Number((tm.spent+amt).toFixed(2)),budget:Number((200-(tm.spent+amt)).toFixed(2))}:tm); const leagues={...s.leagues,[s.scoring]:{...lg,drafted,teams}}; return {...s,playersPPR,playersSTD,leagues,detail:null}; }); }; },[]);
+    useEffect(()=>{ window.__undoDraft = (entry)=>{ setState(s=>{ const lg=s.leagues[s.scoring]; const target=lg.drafted.find(d=>d.uid===entry.uid); if(!target) return s; const drafted=lg.drafted.filter(d=>d.uid!==entry.uid); const unmark=list=>list.map(x=>(x.id===target.id && x.name===target.name)?{...x,draftedBy:null,cost:null}:x); const playersPPR=(s.scoring==='PPR'?unmark(s.playersPPR):s.playersPPR); const playersSTD=(s.scoring==='STD'?unmark(s.playersSTD):s.playersSTD); const teams=lg.teams.map(tm=>tm.id===target.draftedBy?{...tm,spent:Number((tm.spent-(target.cost||0)).toFixed(2)),budget:Number((200-(tm.spent-(target.cost||0))).toFixed(2))}:tm); const leagues={...s.leagues,[s.scoring]:{...lg,drafted,teams}}; return {...s,playersPPR,playersSTD,leagues}; }); }; },[]);
+    useEffect(()=>{ window.__applyEdit = (uidToEdit,newTeamId,newCost)=>{ const amt=Number(newCost); if(isNaN(amt)||amt<MIN_BID||((amt*2)%1)!==0) return; setState(s=>{ const lg=s.leagues[s.scoring]; const d=lg.drafted.find(x=>x.uid===uidToEdit); if(!d) return s; const oldTeam=d.draftedBy, oldCost=d.cost; const drafted=lg.drafted.map(x=>x.uid===uidToEdit?{...x,draftedBy:newTeamId,cost:amt}:x); const teams=lg.teams.map(t=>{ if(t.id===oldTeam && oldTeam!==newTeamId){const spent=Number((t.spent-oldCost).toFixed(2)); return {...t,spent,budget:Number((200-spent).toFixed(2))};} if(t.id===newTeamId){const delta=(newTeamId===oldTeam)?(amt-oldCost):amt; const spent=Number((t.spent+delta).toFixed(2)); return {...t,spent,budget:Number((200-spent).toFixed(2))};} return t; }); const leagues={...s.leagues,[s.scoring]:{...lg,drafted,teams}}; return {...s,leagues,editDraft:null}; }); }; },[]);
 
-  /* Load local insights once */
-  useEffect(()=>{ loadLocalInsights(setState); },[]);
+    // Load insights snapshot once
+    useEffect(()=>{ loadLocalInsights(setState); },[]);
 
-  return e(Router,{state});
-}));
-</script>
-<script>
-/* --- Hotfix: ensure tab switching & initial render --- */
+    return e(Router,{state});
+  }));
+});
+
+/* Tab binder + initial view hotfix (works even if inline onclick is blocked) */
 (function(){
-  // Wait until the React shell has mounted and exposed setState
-  function ready(fn){ if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
-
-  ready(function(){
-    // If Shell already provided a switchView, keep it; otherwise define it here.
-    if (typeof window.switchView !== 'function') {
-      // We'll locate the Shell's setState via the global shim that Shell sets.
-      // If it's not ready yet, try a few times.
-      let tries = 0;
-      const timer = setInterval(function(){
-        tries++;
-        if (typeof window.__SET === 'function') {
-          clearInterval(timer);
-
-          window.switchView = function(view){
-            // Update state
-            window.__SET(s => ({ ...s, view }));
-            // Update hash so Router's effect stays in sync
-            try { window.location.hash = view; } catch(_) {}
-            // Update header active tab visuals
-            ['tab-draft','tab-settings','tab-managers'].forEach(id=>{
-              const el = document.getElementById(id);
-              if(!el) return;
-              el.classList.remove('active');
-            });
-            const map = { draft:'tab-draft', settings:'tab-settings', managers:'tab-managers' };
-            const el = document.getElementById(map[view]);
-            if (el) el.classList.add('active');
-          };
-
-          // On first load: honor hash (#draft/#settings/#managers); default to 'draft'
-          const initial = (location.hash||'').replace('#','');
-          const firstView = (initial==='settings'||initial==='managers') ? initial : 'draft';
-          window.switchView(firstView);
-        } else if (tries > 40) {
-          clearInterval(timer);
-          // As a last resort, just set the hash to draft to nudge Router
-          try { if (!location.hash) location.hash = 'draft'; } catch(_){}
-        }
-      }, 100);
-    } else {
-      // If it already exists, still force an initial view based on hash (or draft)
-      const initial = (location.hash||'').replace('#','');
-      const firstView = (initial==='settings'||initial==='managers') ? initial : 'draft';
-      try { window.switchView(firstView); } catch(_){}
+  function activateTab(view){
+    if (typeof window.__SET === 'function') {
+      window.__SET(function(s){ return Object.assign({}, s, { view: view }); });
     }
-  });
+    try { location.hash = view; } catch(_) {}
+    ['tab-draft','tab-settings','tab-managers'].forEach(function(id){
+      var el=document.getElementById(id); if(!el) return; el.classList.remove('active');
+    });
+    var map={draft:'tab-draft', settings:'tab-settings', managers:'tab-managers'};
+    var el=document.getElementById(map[view]); if(el) el.classList.add('active');
+  }
+  function bindTabs(){
+    var td=document.getElementById('tab-draft');
+    var tm=document.getElementById('tab-managers');
+    var ts=document.getElementById('tab-settings');
+    if(td) td.addEventListener('click', function(e){ e.preventDefault(); activateTab('draft'); });
+    if(tm) tm.addEventListener('click', function(e){ e.preventDefault(); activateTab('managers'); });
+    if(ts) ts.addEventListener('click', function(e){ e.preventDefault(); activateTab('settings'); });
+    var initial=(location.hash||'').replace('#','');
+    if(!/^(draft|settings|managers)$/.test(initial)) initial='draft';
+    activateTab(initial);
+  }
+  if (document.readyState!=='loading') bindTabs();
+  else document.addEventListener('DOMContentLoaded', bindTabs);
 })();
 </script></body>
 </html>
