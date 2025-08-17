@@ -6,9 +6,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <!-- DEBUG/RESILIENT LOADER (fallbacks + error overlay) -->
-<script>
-  (function(){
-    function show(msg){
+<script><script>
+/* SAFE REACT WRAPPERS — replace the first two lines of PART 2 with this */
+function e(){ 
+  // createElement, but only when React is actually present
+  return (window.React && window.React.createElement)
+    ? window.React.createElement.apply(null, arguments)
+    : document.createElement('div'); // harmless placeholder if somehow called too early
+}
+function useState(){ return window.React.useState.apply(null, arguments); }
+function useEffect(){ return window.React.useEffect.apply(null, arguments); }
+function useMemo(){ return window.React.useMemo.apply(null, arguments); }
+
+/* CONFIG */
+const STORAGE_KEY='auction_tracker_dual_league_dashboard_v9_insights';
+const MIN_BID=0.5;
       var box = document.getElementById('boot-error-box');
       if(!box){
         box = document.createElement('div');
